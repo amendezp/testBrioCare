@@ -1,0 +1,24 @@
+schema_version: 1
+id: tiny_checkin
+title: Tiny Check-in
+intro_prompt: Welcome to the tiny check-in.
+closing_prompt: That's all, thanks.
+phases:
+  - id: go_around
+    title: Go around
+    opening_prompt: How are you feeling?
+    transition_prompt: Thanks everyone.
+    acknowledge_speakers: true
+    turn_policy:
+      order: round_robin
+      per_turn_seconds: 20
+      per_turn_hard_seconds: 40
+    participation:
+      require_all_speak: true
+      invite_quiet_after_seconds: 15
+      max_invites_per_participant: 2
+    pacing:
+      min_phase_seconds: 0
+      max_phase_seconds: 300
+      wrapup_warning_seconds: 30
+      advance_when: all_spoke_or_timer

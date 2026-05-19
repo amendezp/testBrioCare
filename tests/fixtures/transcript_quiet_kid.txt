@@ -1,0 +1,8 @@
+# Sam (kid4) stays silent during the go-around and gets nudged
+roster: kid1=Maya, kid2=Leo, kid3=Aisha, kid4=Sam
+@0 start
++95 kid1: I feel calm
++10 kid2: pretty good
++10 kid3: a little nervous
+# kid4 never speaks; let the quiet-nudge + turn cap fire, then wrap on timer
++200 >> end
