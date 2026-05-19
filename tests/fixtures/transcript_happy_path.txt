@@ -1,0 +1,15 @@
+# 4 kids; full check-in circle
+roster: kid1=Maya, kid2=Leo, kid3=Aisha, kid4=Sam
+@0 start
+# warm-up phase (popcorn, timer-advanced @ 90s)
++5  kid2: I felt excited when I scored a goal!
++8  kid1: me too, at my birthday
++12 kid3: excited about the field trip
+# let the warm-up timer run out, then go_around begins
++70 kid1: I feel happy today
++20 kid2: kind of tired
++18 kid3: pass
++15 kid4: I dunno... bored I guess
+# reflect phase is open + timer-advanced @ 60s
++10 kid4: actually Maya's was nice
++70 >> end

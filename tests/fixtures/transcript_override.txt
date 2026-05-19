@@ -1,0 +1,10 @@
+# Clinician drives: mute, inject, advance, say, end
+roster: kid1=Maya, kid2=Leo, kid3=Aisha, kid4=Sam
+@0 start
++95 kid1: happy
++3  >> mute
++5  kid2: I feel fine
++2  >> unmute
++3  >> say "Let's all take a slow breath together."
++4  >> advance
++5  >> end
