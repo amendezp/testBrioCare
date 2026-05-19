@@ -1,0 +1,5 @@
+# Runtime deps for the Vercel Python serverless function (api/run.py).
+# The CLI/dev workflow uses uv + pyproject.toml; this file is only for Vercel.
+pydantic>=2.6
+pyyaml>=6.0
+rich>=13.7

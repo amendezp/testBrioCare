@@ -26,22 +26,28 @@ def _format_validation_error(path: Path, exc: ValidationError) -> str:
     return "\n".join(lines)
 
 
+def loads_script(text: str, *, source: str | Path = "<string>") -> ExerciseScript:
+    """Parse + validate an exercise script from YAML/JSON text."""
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise ScriptValidationError(f"{source}: YAML parse error: {exc}") from exc
+
+    if not isinstance(data, dict):
+        raise ScriptValidationError(
+            f"{source}: top level must be a mapping, got {type(data).__name__}"
+        )
+
+    try:
+        return ExerciseScript.model_validate(data)
+    except ValidationError as exc:
+        raise ScriptValidationError(_format_validation_error(Path(source), exc)) from exc
+
+
 def load_script(path: str | Path) -> ExerciseScript:
     path = Path(path)
     try:
         raw = path.read_text(encoding="utf-8")
     except OSError as exc:
         raise ScriptValidationError(f"{path}: cannot read file ({exc})") from exc
-
-    try:
-        data = yaml.safe_load(raw)
-    except yaml.YAMLError as exc:
-        raise ScriptValidationError(f"{path}: YAML parse error: {exc}") from exc
-
-    if not isinstance(data, dict):
-        raise ScriptValidationError(f"{path}: top level must be a mapping, got {type(data).__name__}")
-
-    try:
-        return ExerciseScript.model_validate(data)
-    except ValidationError as exc:
-        raise ScriptValidationError(_format_validation_error(path, exc)) from exc
+    return loads_script(raw, source=path)

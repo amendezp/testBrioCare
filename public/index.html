@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BrioCare — session simulator</title>
+<style>
+  :root { color-scheme: light dark; --fg:#1a1a1a; --bg:#fafafa; --card:#fff;
+          --line:#e3e3e3; --accent:#2f6df0; --mut:#666; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e8e8e8; --bg:#161616; --card:#1e1e1e; --line:#333; --mut:#999; } }
+  * { box-sizing: border-box; }
+  body { margin:0; font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+         color:var(--fg); background:var(--bg); }
+  header { padding:22px 24px; border-bottom:1px solid var(--line); }
+  h1 { margin:0; font-size:19px; } h1 small { color:var(--mut); font-weight:400; }
+  main { max-width:1200px; margin:0 auto; padding:20px 24px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:880px){ .grid{ grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px; }
+  label { display:block; font-weight:600; margin-bottom:6px; font-size:13px; }
+  textarea { width:100%; height:300px; resize:vertical; border:1px solid var(--line);
+             border-radius:8px; padding:10px; background:transparent; color:var(--fg);
+             font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .bar { display:flex; gap:10px; align-items:center; margin:16px 0; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px;
+           padding:10px 18px; font-size:14px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.55; cursor:default; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--line); }
+  #status { color:var(--mut); font-size:13px; }
+  pre { background:var(--card); border:1px solid var(--line); border-radius:10px;
+        padding:14px; overflow:auto; font:13px/1.5 ui-monospace,Menlo,monospace;
+        white-space:pre-wrap; min-height:120px; }
+  .err { color:#c0392b; }
+  .pill { font-size:12px; color:var(--mut); }
+</style>
+</head>
+<body>
+<header>
+  <h1>BrioCare <small>— text simulation of the session state machine</small></h1>
+  <p class="pill">Edit the exercise script (YAML) and the transcript, then run. Output is one
+  line per facilitator action. No audio — this is the deterministic core voice will sit on.</p>
+</header>
+<main>
+  <div class="grid">
+    <div class="card">
+      <label for="script">Exercise script (YAML)</label>
+      <textarea id="script" spellcheck="false"></textarea>
+    </div>
+    <div class="card">
+      <label for="transcript">Transcript</label>
+      <textarea id="transcript" spellcheck="false"></textarea>
+    </div>
+  </div>
+  <div class="bar">
+    <button id="run">Run simulation</button>
+    <button id="reset" class="ghost">Reset to example</button>
+    <button id="toggle" class="ghost">Show JSON</button>
+    <span id="status"></span>
+  </div>
+  <pre id="out">Ready.</pre>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let defaults = { script: "", transcript: "" };
+let lastResult = null, showJson = false;
+
+async function loadDefaults() {
+  try {
+    const r = await fetch("/api/run");
+    defaults = await r.json();
+    $("script").value = defaults.script;
+    $("transcript").value = defaults.transcript;
+  } catch (e) { $("status").textContent = "could not load defaults: " + e; }
+}
+
+function render() {
+  if (!lastResult) return;
+  if (!lastResult.ok) {
+    $("out").innerHTML = '<span class="err">' +
+      escapeHtml((lastResult.stage ? "[" + lastResult.stage + "] " : "") + lastResult.error) +
+      '</span>';
+    return;
+  }
+  if (showJson) {
+    $("out").textContent = JSON.stringify(lastResult.steps, null, 2);
+  } else {
+    $("out").textContent = lastResult.lines.join("\n") || "(no actions emitted)";
+  }
+}
+function escapeHtml(s){ return s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c])); }
+
+async function run() {
+  $("run").disabled = true; $("status").textContent = "running…";
+  try {
+    const r = await fetch("/api/run", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ script: $("script").value, transcript: $("transcript").value })
+    });
+    lastResult = await r.json();
+    $("status").textContent = lastResult.ok
+      ? lastResult.steps.length + " steps · " + lastResult.lines.length + " actions"
+      : "error";
+    render();
+  } catch (e) {
+    $("status").textContent = "request failed: " + e;
+  } finally { $("run").disabled = false; }
+}
+
+$("run").onclick = run;
+$("reset").onclick = () => { $("script").value = defaults.script;
+  $("transcript").value = defaults.transcript; $("status").textContent = ""; };
+$("toggle").onclick = () => { showJson = !showJson;
+  $("toggle").textContent = showJson ? "Show actions" : "Show JSON"; render(); };
+loadDefaults();
+</script>
+</body>
+</html>

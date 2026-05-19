@@ -66,6 +66,13 @@ roster: kid1=Maya, kid2=Leo, kid3=Aisha, kid4=Sam
 +20 >> end
 ```
 
+## Web demo
+
+A minimal browser playground (Vercel) lets you edit a script + transcript and see
+the facilitator-action stream. It's a thin layer over the same engine:
+`public/index.html` → `api/run.py` (Python serverless) → `briocare.websim.simulate`.
+No audio; the core is unchanged.
+
 ## Development
 
 ```bash

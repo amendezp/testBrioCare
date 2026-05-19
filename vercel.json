@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "functions": {
+    "api/run.py": {
+      "memory": 512,
+      "maxDuration": 15,
+      "includeFiles": "{src/briocare/**,tests/fixtures/transcript_happy_path.txt}"
+    }
+  }
+}
