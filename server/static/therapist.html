@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BrioCare — therapist console</title>
+<script src="https://unpkg.com/@daily-co/daily-js"></script>
+<style>
+  :root { color-scheme: light dark; --fg:#1a1a1a; --bg:#fafafa; --card:#fff;
+          --line:#e3e3e3; --accent:#2f6df0; --mut:#666; --good:#1e9e5a; --warn:#c0392b; --kid:#1e9e5a; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e8e8e8; --bg:#161616; --card:#1e1e1e; --line:#333; --mut:#999; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+         color:var(--fg); background:var(--bg); }
+  header { padding:12px 18px; border-bottom:1px solid var(--line); display:flex; align-items:baseline; gap:10px; }
+  h1 { margin:0; font-size:16px; } .pill { color:var(--mut); font-size:12px; }
+  main { max-width:1280px; margin:0 auto; padding:14px 18px; display:grid;
+         grid-template-columns:360px 1fr; gap:14px; align-items:start; }
+  @media (max-width:900px){ main{ grid-template-columns:1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; }
+  h2 { margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--mut); }
+  #video { width:100%; aspect-ratio:16/10; background:var(--card); border:1px solid var(--line);
+           border-radius:10px; overflow:hidden; margin-bottom:14px; }
+  .vid-off { display:flex; height:100%; align-items:center; justify-content:center; color:var(--mut); font-size:13px; padding:14px; text-align:center; }
+  .kv { display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px dashed var(--line); }
+  .kv span:first-child { color:var(--mut); }
+  .badge { font-size:12px; padding:1px 7px; border-radius:20px; border:1px solid var(--line); }
+  .badge.on { color:var(--warn); border-color:var(--warn); }
+  table { width:100%; border-collapse:collapse; margin-top:6px; font-size:13px; }
+  th,td { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); }
+  th { color:var(--mut); font-weight:600; }
+  .controls { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:8px 12px;
+           font-size:13px; font-weight:600; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--line); }
+  button.on { background:#d23b3b; }
+  .row { display:flex; gap:8px; margin-top:10px; }
+  .row input { flex:1; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:transparent; color:var(--fg); }
+  .right { display:grid; grid-template-rows:auto auto; gap:14px; }
+  .feeds { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  @media (max-width:1100px){ .feeds{ grid-template-columns:1fr; } }
+  .scroll { height:300px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:10px; }
+  .notes { min-height:160px; max-height:420px; overflow:auto; }
+  .notes h3 { font-size:14px; margin:12px 0 4px; } .notes ul { margin:4px 0 4px 18px; padding:0; }
+  .notes p { margin:4px 0; } .notes em { color:var(--mut); }
+  .t-line { margin:2px 0; } .t-line .who { font-weight:700; } .t-line.kid .who { color:var(--kid); }
+  .t-line.therapist .who { color:var(--accent); }
+  pre#log { margin:0; white-space:pre-wrap; font:12px/1.5 ui-monospace,Menlo,monospace; }
+  .status { color:var(--mut); font-size:12px; }
+  .final-tag { color:var(--good); font-size:11px; font-weight:700; }
+</style>
+</head>
+<body>
+<header>
+  <h1>BrioCare — therapist console</h1>
+  <span class="pill" id="conn">connecting…</span>
+</header>
+<main>
+  <!-- LEFT: video, state, controls -->
+  <div>
+    <div id="video"><div class="vid-off">Connecting video…</div></div>
+    <section class="card">
+      <h2>Session state</h2>
+      <div class="kv"><span>Lifecycle</span><b id="s-life">—</b></div>
+      <div class="kv"><span>Activity</span><b id="s-phase">—</b></div>
+      <div class="kv"><span>Current turn</span><b id="s-turn">—</b></div>
+      <div class="kv"><span>Flags</span><span><span class="badge" id="s-paused">running</span>
+        <span class="badge" id="s-muted">unmuted</span></span></div>
+      <table>
+        <thead><tr><th>Participant</th><th>Spoke</th><th>Nudges</th></tr></thead>
+        <tbody id="s-parts"><tr><td colspan="3" class="status">Not started.</td></tr></tbody>
+      </table>
+      <div class="row">
+        <input id="kidname" placeholder="Kid's name (optional)" autocomplete="off" />
+        <button id="btn-start">Start</button>
+      </div>
+      <div class="controls">
+        <button id="btn-mic" class="ghost">🎤 Mic off</button>
+        <button class="ghost" data-cmd="advance_phase">Next activity</button>
+        <button class="ghost" data-cmd="pause">Pause</button>
+        <button class="ghost" data-cmd="resume">Resume</button>
+        <button class="ghost" data-cmd="mute_agent">Mute cues</button>
+        <button class="ghost" data-cmd="unmute_agent">Unmute</button>
+        <button class="ghost" id="btn-skip">Skip turn</button>
+        <button class="ghost" id="btn-end">End</button>
+      </div>
+      <div class="row">
+        <input id="inject" placeholder="Suggest a prompt to share…" />
+        <button id="btn-inject">Share</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- RIGHT: notes + transcript + cues -->
+  <div class="right">
+    <section class="card">
+      <h2>AI session notes <span class="final-tag" id="notes-final" style="display:none">· final summary</span>
+        <button class="ghost" id="btn-copy" style="float:right;padding:3px 8px">Copy</button></h2>
+      <div class="notes" id="notes"><span class="status">Notes will appear as the conversation gets going…</span></div>
+    </section>
+    <div class="feeds">
+      <section class="card">
+        <h2>Live transcript</h2>
+        <div class="scroll" id="transcript"><span class="status">Turn on your mic (and the kid's) to capture the conversation.</span></div>
+      </section>
+      <section class="card">
+        <h2>Co-pilot cues</h2>
+        <div class="scroll"><pre id="log"></pre></div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const room = (params.get("room") || "demo").trim() || "demo";
+let ws, snapshot = {}, callFrame = null, lastNotes = "";
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec, micOn = false;
+
+function connect() {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  ws = new WebSocket(`${proto}://${location.host}/ws/${encodeURIComponent(room)}/therapist`);
+  ws.onopen = () => { $("conn").textContent = "session: " + room; };
+  ws.onclose = () => { $("conn").textContent = "disconnected"; };
+  ws.onmessage = (e) => handle(JSON.parse(e.data));
+}
+
+function handle(msg) {
+  switch (msg.type) {
+    case "room_info": mountVideo(msg.url); break;
+    case "snapshot": snapshot = msg.state; renderState(msg.state); break;
+    case "actions": for (const l of msg.lines) appendLog(l); break;
+    case "transcript": appendTranscript(msg); break;
+    case "notes": renderNotes(msg.markdown, msg.final); break;
+    case "session_over": appendLog("— session ended —"); break;
+    case "notice": appendLog("(" + msg.text + ")"); break;
+  }
+}
+
+// --- video ---
+function mountVideo(url) {
+  const el = $("video");
+  if (!url) { el.innerHTML = '<div class="vid-off">Video disabled — set DAILY_API_KEY on the server. Transcript, cues & notes still work.</div>'; return; }
+  if (callFrame || !window.DailyIframe) return;
+  el.innerHTML = "";
+  callFrame = window.DailyIframe.createFrame(el, {
+    showLeaveButton: false, showFullscreenButton: false,
+    iframeStyle: { width: "100%", height: "100%", border: "0" },
+  });
+  callFrame.join({ url }).catch(() => { el.innerHTML = '<div class="vid-off">Could not join the video room.</div>'; });
+}
+
+// --- feeds ---
+function appendLog(line) { const el = $("log"); el.textContent += (el.textContent ? "\n" : "") + line; el.parentElement.scrollTop = el.parentElement.scrollHeight; }
+function appendTranscript(m) {
+  const box = $("transcript");
+  if (box.querySelector(".status")) box.innerHTML = "";
+  const div = document.createElement("div");
+  div.className = "t-line " + (m.role === "kid" ? "kid" : "therapist");
+  div.innerHTML = `<span class="who"></span>: <span class="txt"></span>`;
+  div.querySelector(".who").textContent = m.name;
+  div.querySelector(".txt").textContent = m.text;
+  box.appendChild(div); box.scrollTop = box.scrollHeight;
+}
+function renderNotes(markdown, final) {
+  lastNotes = markdown;
+  $("notes").innerHTML = mdLite(markdown);
+  $("notes-final").style.display = final ? "" : "none";
+}
+
+// tiny, safe markdown: escape then apply ##, **bold**, - bullets
+function mdLite(md) {
+  const esc = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const lines = esc(md).split("\n"); let html = "", inUl = false;
+  const close = () => { if (inUl) { html += "</ul>"; inUl = false; } };
+  for (let line of lines) {
+    if (/^##\s+/.test(line)) { close(); html += "<h3>" + line.replace(/^##\s+/, "") + "</h3>"; }
+    else if (/^[-*]\s+/.test(line)) { if (!inUl) { html += "<ul>"; inUl = true; } html += "<li>" + bold(line.replace(/^[-*]\s+/, "")) + "</li>"; }
+    else if (line.trim() === "") { close(); }
+    else { close(); html += "<p>" + bold(line) + "</p>"; }
+  }
+  close(); return html;
+  function bold(s){ return s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/^_(.+)_$/, "<em>$1</em>"); }
+}
+
+function renderState(st) {
+  $("s-life").textContent = st.lifecycle;
+  $("s-phase").textContent = st.phase_title || st.phase_id || "—";
+  $("s-turn").textContent = st.current_turn_name || "—";
+  const p = $("s-paused"); p.textContent = st.paused ? "paused" : "running"; p.className = "badge" + (st.paused ? " on" : "");
+  const m = $("s-muted"); m.textContent = st.agent_muted ? "cues muted" : "cues on"; m.className = "badge" + (st.agent_muted ? " on" : "");
+  const tb = $("s-parts");
+  if (!st.participants || !st.participants.length) { tb.innerHTML = '<tr><td colspan="3" class="status">Not started.</td></tr>'; return; }
+  tb.innerHTML = st.participants.map(x => `<tr><td>${x.name}</td><td>${x.spoke_count}</td><td>${x.invites_received}</td></tr>`).join("");
+}
+
+// --- controls ---
+function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+function override(command, args = {}) { send({ type: "override", command, args }); }
+$("btn-start").onclick = () => send({ type: "start", kid_name: $("kidname").value || null });
+$("btn-end").onclick = () => send({ type: "end" });
+$("btn-skip").onclick = () => { if (snapshot.current_turn) override("skip_participant", { pid: snapshot.current_turn }); };
+$("btn-inject").onclick = () => { const t = $("inject").value.trim(); if (t) { override("inject_prompt", { text: t }); $("inject").value = ""; } };
+$("btn-copy").onclick = () => { if (lastNotes) navigator.clipboard.writeText(lastNotes); };
+document.querySelectorAll("button[data-cmd]").forEach(b => b.onclick = () => override(b.dataset.cmd));
+
+// --- therapist mic (transcribes the therapist's own side) ---
+function startMic() {
+  if (!SR || micOn) { if (!SR) appendLog("(this browser has no speech recognition — use Chrome to capture your side)"); return; }
+  rec = new SR(); rec.lang = "en-US"; rec.continuous = true; rec.interimResults = false;
+  rec.onresult = (ev) => { for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) { const t = ev.results[i][0].transcript.trim(); if (t) send({ type: "spoke", text: t }); } };
+  rec.onend = () => { if (micOn) { try { rec.start(); } catch (e) {} } };
+  try { rec.start(); micOn = true; $("btn-mic").textContent = "🎤 Mic on"; $("btn-mic").classList.add("on"); } catch (e) {}
+}
+function stopMic() { micOn = false; if (rec) { try { rec.stop(); } catch (e) {} } $("btn-mic").textContent = "🎤 Mic off"; $("btn-mic").classList.remove("on"); }
+$("btn-mic").onclick = () => micOn ? stopMic() : startMic();
+
+connect();
+</script>
+</body>
+</html>

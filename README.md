@@ -73,6 +73,39 @@ the facilitator-action stream. It's a thin layer over the same engine:
 `public/index.html` → `api/run.py` (Python serverless) → `briocare.websim.simulate`.
 No audio; the core is unchanged.
 
+## Live telehealth co-pilot demo (`server/`)
+
+A real-time, two-**human** session for showing the product to therapists and investors.
+Open `/` and pick **Therapist** or **Kid**; both join one live session. The therapist
+and child talk to each other over a **Daily** video call — the AI is **not** a therapist,
+it's a **co-pilot** riding along to make the human session more efficient:
+
+- **Live transcript** — each browser transcribes its own mic (browser-native Web Speech,
+  **Chrome/Edge**) and streams speaker-tagged text to the therapist console.
+- **AI session notes** — Claude turns the running transcript into structured, editable
+  clinical notes during the session and a fuller summary at the end (`server/notes.py`).
+- **Session-mechanics cues** — the turn-taking / pacing / quiet-detection engine, surfaced
+  as gentle on-screen cues for the therapist (driven only by the **child's** utterances).
+  The therapist keeps full control (start, next activity, pause, mute cues, skip, share a
+  prompt, end).
+
+It's an additive layer over the unchanged engine. `server.room.SessionRoom` holds one
+`SessionMachine` + a real `WallClock` per room, drives `Tick`/`SilenceTimeout` off a single
+asyncio timer (mirroring the sim harness), and pushes to both browsers over WebSockets.
+Both integrations **degrade gracefully**: no `DAILY_API_KEY` → video panel disabled (rest
+works); no `ANTHROPIC_API_KEY` → notes show the raw transcript.
+
+```bash
+# Run locally (two Chrome tabs at http://localhost:8000 — therapist + kid):
+uv run --extra server uvicorn server.app:app --reload --port 8000
+export DAILY_API_KEY=...            # optional; enables the human video call
+export ANTHROPIC_API_KEY=sk-...     # optional; enables AI notes + shared-prompt phrasing
+```
+
+Deploy on **Railway** (persistent process; HTTPS by default, which the mic + camera need):
+start command `uvicorn server.app:app --host 0.0.0.0 --port $PORT` (see `Procfile`),
+set `DAILY_API_KEY` and `ANTHROPIC_API_KEY`. Activities come from `server/scripts/solo_checkin.yaml`.
+
 ## Development
 
 ```bash
