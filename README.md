@@ -103,8 +103,9 @@ export ANTHROPIC_API_KEY=sk-...     # optional; enables AI notes + shared-prompt
 ```
 
 Deploy on **Railway** (persistent process; HTTPS by default, which the mic + camera need):
-start command `uvicorn server.app:app --host 0.0.0.0 --port $PORT` (see `Procfile`),
-set `DAILY_API_KEY` and `ANTHROPIC_API_KEY`. Activities come from `server/scripts/solo_checkin.yaml`.
+the repo ships `nixpacks.toml` + `railway.json` + `Procfile`, so it builds and runs as-is —
+just set `DAILY_API_KEY` and `ANTHROPIC_API_KEY` in the Variables tab. See
+[`RAILWAY.md`](RAILWAY.md) for step-by-step. Activities come from `server/scripts/solo_checkin.yaml`.
 
 ## Development
 
