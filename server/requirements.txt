@@ -1,0 +1,10 @@
+# Live voice-demo server (Railway / local uvicorn). The engine itself is bundled
+# from src/briocare and only needs pydantic + pyyaml.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+anthropic>=0.40
+websockets>=12.0
+httpx>=0.27
+pydantic>=2.6
+pyyaml>=6.0
+rich>=13.7

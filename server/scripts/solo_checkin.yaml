@@ -1,0 +1,78 @@
+schema_version: 1
+id: solo_checkin
+title: One-on-One Feelings Check-in
+description: >
+  A short, single-kid check-in for the live voice demo: the facilitator welcomes
+  the child, invites them to name how they're feeling, acknowledges it, then opens
+  a brief reflection before wrapping up. Timers are short so the demo moves quickly.
+age_range: [7, 11]
+recommended_group_size: [1, 1]
+
+intro_prompt:
+  text: >
+    Hi there, welcome! I'm so glad you're here. We're going to do a quick
+    check-in about how you're feeling today. There are no wrong answers.
+
+closing_prompt:
+  text: >
+    Thank you so much for sharing with me today. Take a slow breath with me,
+    and let's get ready for what's next. Great job.
+
+phases:
+  - id: checkin
+    title: How are you feeling?
+    opening_prompt:
+      text: >
+        When you're ready, tell me one word or a short sentence about how you're
+        feeling right now. You can always say "pass" if you'd rather not.
+      addressed_to: current_turn
+    transition_prompt:
+      text: Thanks for telling me that. Let's keep going.
+    acknowledge_speakers: true
+    turn_policy:
+      order: round_robin
+      per_turn_seconds: 25
+      per_turn_hard_seconds: 45
+      allow_pass: true
+      one_turn_per_participant: true
+    participation:
+      require_all_speak: true
+      invite_quiet_after_seconds: 15
+      max_invites_per_participant: 2
+      quiet_participant_strategy: direct_invite
+      honor_pass: true
+    pacing:
+      min_phase_seconds: 0
+      max_phase_seconds: 70
+      wrapup_warning_seconds: 20
+      advance_when: all_spoke_or_timer
+    facilitator_notes: >
+      This is a young child (7-11) in a one-on-one social-emotional check-in.
+      Be warm, gentle and concrete. Validate whatever feeling they name without
+      judgement. Keep replies to a single short spoken sentence.
+
+  - id: reflect
+    title: Anything to add?
+    opening_prompt:
+      text: >
+        Before we finish — is there anything else you'd like to tell me, or
+        anything on your mind? It's okay if not.
+      addressed_to: current_turn
+    transition_prompt:
+      text: Okay, let's wrap up.
+    acknowledge_speakers: true
+    turn_policy:
+      order: open
+      allow_pass: true
+      one_turn_per_participant: false
+    participation:
+      require_all_speak: false
+      quiet_participant_strategy: skip
+    pacing:
+      min_phase_seconds: 0
+      max_phase_seconds: 45
+      wrapup_warning_seconds: 15
+      advance_when: timer
+    facilitator_notes: >
+      Optional open reflection with a young child. Encouraging and brief. Never
+      push if they have nothing to add; a short, kind acknowledgement is enough.

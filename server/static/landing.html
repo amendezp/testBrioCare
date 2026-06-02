@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>BrioCare — telehealth co-pilot</title>
+<style>
+  :root { color-scheme: light dark; --fg:#1a1a1a; --bg:#fafafa; --card:#fff;
+          --line:#e3e3e3; --accent:#2f6df0; --mut:#666; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg:#e8e8e8; --bg:#161616; --card:#1e1e1e; --line:#333; --mut:#999; } }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+         color:var(--fg); background:var(--bg); }
+  main { width:100%; max-width:540px; padding:28px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  p.sub { color:var(--mut); margin:0 0 24px; }
+  label { display:block; font-weight:600; font-size:13px; margin:0 0 6px; }
+  input { width:100%; padding:11px 12px; border:1px solid var(--line); border-radius:8px;
+          background:var(--card); color:var(--fg); font-size:15px; margin-bottom:20px; }
+  .roles { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  a.role { display:block; text-decoration:none; text-align:center; background:var(--card);
+           border:1px solid var(--line); border-radius:12px; padding:26px 16px; color:var(--fg);
+           transition:border-color .15s, transform .05s; }
+  a.role:hover { border-color:var(--accent); }
+  a.role:active { transform:scale(.98); }
+  a.role .emoji { font-size:34px; display:block; margin-bottom:8px; }
+  a.role b { display:block; font-size:16px; }
+  a.role span { color:var(--mut); font-size:13px; }
+  footer { color:var(--mut); font-size:12px; margin-top:22px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>BrioCare — live session</h1>
+  <p class="sub">A telehealth session between a therapist and a child, with an AI co-pilot that
+  handles transcription, notes, and session pacing. Pick your role.</p>
+
+  <label for="room">Session code</label>
+  <input id="room" value="demo" autocomplete="off" spellcheck="false" />
+
+  <div class="roles">
+    <a class="role" id="therapist" href="#"><span class="emoji">🩺</span><b>I'm the Therapist</b><span>Lead &amp; see the co-pilot</span></a>
+    <a class="role" id="kid" href="#"><span class="emoji">🙂</span><b>I'm the Kid</b><span>Join the session</span></a>
+  </div>
+
+  <footer>Video runs on Daily; transcription uses your browser's built-in speech — works best in
+  Chrome, and needs HTTPS or localhost for the mic.</footer>
+</main>
+<script>
+  const room = document.getElementById("room");
+  function go(role) {
+    const code = encodeURIComponent((room.value || "demo").trim() || "demo");
+    location.href = `/${role}?room=${code}`;
+  }
+  document.getElementById("kid").onclick = (e) => { e.preventDefault(); go("kid"); };
+  document.getElementById("therapist").onclick = (e) => { e.preventDefault(); go("therapist"); };
+</script>
+</body>
+</html>

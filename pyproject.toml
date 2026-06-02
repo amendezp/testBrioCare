@@ -11,6 +11,17 @@ dependencies = [
     "rich>=13.7",
 ]
 
+[project.optional-dependencies]
+# Live voice-demo server (FastAPI + WebSockets + Claude phraser). Optional: the
+# core engine + text sim never need these. Install with `uv sync --extra server`.
+server = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "anthropic>=0.40",
+    "websockets>=12.0",
+    "httpx>=0.27",
+]
+
 [project.scripts]
 briocare = "briocare.cli:app"
 
