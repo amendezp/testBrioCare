@@ -16,8 +16,6 @@ from briocare.runtime.events import (
     EndSessionRequest,
     InputEvent,
     OverrideCommand,
-    ParticipantSpoke,
-    StartSession,
 )
 
 # --- client -> server -------------------------------------------------------
@@ -27,9 +25,15 @@ class _ClientMsg(BaseModel):
     pass
 
 
+class JoinMsg(_ClientMsg):
+    """A kid announces presence with a display name (added to the lobby)."""
+
+    type: Literal["join"] = "join"
+    name: str
+
+
 class StartMsg(_ClientMsg):
     type: Literal["start"] = "start"
-    kid_name: str | None = None
 
 
 class SpokeMsg(_ClientMsg):
@@ -48,7 +52,7 @@ class EndMsg(_ClientMsg):
 
 
 ClientMessage = Annotated[
-    StartMsg | SpokeMsg | OverrideMsg | EndMsg,
+    JoinMsg | StartMsg | SpokeMsg | OverrideMsg | EndMsg,
     Field(discriminator="type"),
 ]
 
@@ -66,23 +70,17 @@ def parse_client_message(raw: str) -> ClientMessage:
         raise ProtocolError(str(exc)) from exc
 
 
-def to_event(
-    msg: ClientMessage,
-    *,
-    kid_pid: str,
-    kid_name: str,
-) -> InputEvent:
-    """Map a validated client message to an engine input event (``at`` filled later)."""
-    if isinstance(msg, StartMsg):
-        name = (msg.kid_name or kid_name).strip() or kid_name
-        return StartSession(at=0.0, roster={kid_pid: name})
-    if isinstance(msg, SpokeMsg):
-        return ParticipantSpoke(at=0.0, participant_id=kid_pid, text=msg.text)
+def to_event(msg: ClientMessage) -> InputEvent:
+    """Map an override/end message to an engine event (``at`` filled later).
+
+    ``join`` / ``start`` / ``spoke`` are built by the room, which knows each
+    connection's participant id and the full roster.
+    """
     if isinstance(msg, OverrideMsg):
         return ClinicianOverride(at=0.0, command=msg.command, args=dict(msg.args))
     if isinstance(msg, EndMsg):
         return EndSessionRequest(at=0.0)
-    raise ProtocolError(f"unhandled message type: {msg!r}")  # pragma: no cover
+    raise ProtocolError(f"to_event does not handle {msg.type!r}")  # pragma: no cover
 
 
 # --- server -> client builders ---------------------------------------------
@@ -96,6 +94,11 @@ ROLES = (KID, THERAPIST)
 def room_info_msg(url: str | None) -> dict:
     """Daily room URL for the human video call (None -> video disabled)."""
     return {"type": "room_info", "url": url}
+
+
+def identity_msg(*, pid: str, name: str) -> dict:
+    """Tell a kid its assigned participant id so its UI can detect 'your turn'."""
+    return {"type": "identity", "pid": pid, "name": name}
 
 
 def transcript_msg(*, role: str, name: str, text: str, at: float) -> dict:

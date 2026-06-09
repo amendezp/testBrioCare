@@ -1,22 +1,20 @@
-"""A single live telehealth session: two humans + an AI co-pilot.
+"""A single live group session: one therapist + up to six kids + an AI co-pilot.
 
-A therapist and a child join one room. They talk to each other over a **Daily**
-video call; the AI never speaks for the therapist. Each browser transcribes its own
-mic (Web Speech) and sends text here, which the room turns into:
+Each kid joins on their **own** WebSocket connection with a display name, so the room
+always knows who is speaking (no audio diarization). The kids' utterances drive the
+existing :class:`SessionMachine` (round-robin turn-taking, quiet-kid nudges, pacing);
+the therapist's utterances are transcript/notes only. The therapist sees a **lobby** of
+joined kids and clicks Start, which freezes the roster (join order = turn order).
 
-- a speaker-tagged **transcript** + live **AI notes** for the therapist, and
-- **session-mechanics cues** by feeding the *child's* utterances to the existing
-  :class:`SessionMachine` (turn-taking / pacing / quiet detection). The therapist's
-  utterances are transcript/notes only — they don't drive the engine.
-
-The real-time scaffolding (one ``WallClock`` + a single asyncio deadline timer + a
-lock serialising every ``machine.step``) is unchanged from the earlier voice demo.
+The real-time scaffolding (one ``WallClock`` + a single asyncio deadline timer + a lock
+serialising every ``machine.step``) is unchanged.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+from dataclasses import dataclass
 from typing import Any
 
 from briocare.io.facilitator_sink import render_action
@@ -43,15 +41,21 @@ from server.daily import Daily
 from server.notes import NoteTaker
 from server.phraser import Phraser
 
-KID_PID = "kid1"
-DEFAULT_KID_NAME = "Friend"
 THERAPIST_NAME = "Therapist"
+MAX_KIDS = 6
 _NOTES_EVERY = 6  # refresh live notes after this many new utterances
 
-# Spoken actions whose wording is friendly to share with the child too.
+# Spoken actions whose wording is friendly to share with the kids too.
 _SHAREABLE = frozenset(
     {PromptSource.INTRO, PromptSource.PHASE_OPENING, PromptSource.PHASE_TRANSITION, PromptSource.INJECTED}
 )
+
+
+@dataclass
+class KidConn:
+    pid: str
+    name: str
+    ws: Any
 
 
 class SessionRoom:
@@ -69,12 +73,12 @@ class SessionRoom:
         self.phraser = phraser
         self.notes = notes
         self.daily = daily
-        self.kid_name = DEFAULT_KID_NAME
 
         self.machine: SessionMachine | None = None
         self.clock: WallClock | None = None
-        self.kid_ws: Any | None = None
         self.therapist_ws: Any | None = None
+        self.kids: dict[str, KidConn] = {}  # pid -> conn, in join order
+        self._kid_seq = 0
 
         self.transcript: list[dict[str, Any]] = []
         self._utts_since_notes = 0
@@ -89,27 +93,41 @@ class SessionRoom:
     # -- socket lifecycle ---------------------------------------------------
 
     async def attach(self, role: str, ws: Any) -> bool:
-        """Register a socket for ``role``. Returns False if that role is already taken."""
-        if role == protocol.KID:
-            if self.kid_ws is not None:
-                return False
-            self.kid_ws = ws
-        else:
+        """Register a socket. Returns False if the therapist seat or kid capacity is full."""
+        url = await self._ensure_room()
+        if role == protocol.THERAPIST:
             if self.therapist_ws is not None:
                 return False
             self.therapist_ws = ws
-        url = await self._ensure_room()
+            await self._send(ws, protocol.room_info_msg(url))
+            await self._send(ws, protocol.snapshot_msg(self._snapshot()))
+            if self.machine is None:
+                await self._send(ws, protocol.notice_msg("Waiting for kids to join, then press Start."))
+            return True
+
+        # kid
+        if len(self.kids) >= MAX_KIDS:
+            return False
+        self._kid_seq += 1
+        pid = f"kid{self._kid_seq}"
+        conn = KidConn(pid=pid, name=f"Kid {self._kid_seq}", ws=ws)
+        self.kids[pid] = conn
         await self._send(ws, protocol.room_info_msg(url))
+        await self._send(ws, protocol.identity_msg(pid=pid, name=conn.name))
         await self._send(ws, protocol.snapshot_msg(self._snapshot()))
-        if self.machine is None:
-            await self._send(ws, protocol.notice_msg("Waiting for the therapist to start the session…"))
+        if self.machine is not None:
+            await self._send(ws, protocol.notice_msg("The session is already in progress — you're observing."))
+        await self._send_therapist(protocol.snapshot_msg(self._snapshot()))
         return True
 
     async def detach(self, role: str, ws: Any) -> None:
-        if role == protocol.KID and self.kid_ws is ws:
-            self.kid_ws = None
-        elif role == protocol.THERAPIST and self.therapist_ws is ws:
+        if role == protocol.THERAPIST and self.therapist_ws is ws:
             self.therapist_ws = None
+            return
+        conn = self._conn_for_ws(ws)
+        if conn is not None:
+            self.kids.pop(conn.pid, None)
+            await self._send_therapist(protocol.snapshot_msg(self._snapshot()))
 
     async def _ensure_room(self) -> str | None:
         if not self._room_fetched:
@@ -117,42 +135,78 @@ class SessionRoom:
             self._room_fetched = True
         return self.room_url
 
+    def _conn_for_ws(self, ws: Any) -> KidConn | None:
+        return next((c for c in self.kids.values() if c.ws is ws), None)
+
     # -- inbound messages ---------------------------------------------------
 
-    async def handle_client_message(self, role: str, raw: str) -> None:
+    async def handle_client_message(self, role: str, ws: Any, raw: str) -> None:
         try:
             msg = protocol.parse_client_message(raw)
         except protocol.ProtocolError:
             return
         if not self._role_allows(role, msg):
             return
-        if isinstance(msg, protocol.SpokeMsg):
-            await self._on_spoke(role, msg.text)
+        if isinstance(msg, protocol.JoinMsg):
+            await self._on_join(ws, msg.name)
             return
-        if isinstance(msg, protocol.StartMsg) and msg.kid_name:
-            self.kid_name = msg.kid_name.strip() or self.kid_name
-        event = protocol.to_event(msg, kid_pid=KID_PID, kid_name=self.kid_name)
-        await self._feed(event)
+        if isinstance(msg, protocol.SpokeMsg):
+            await self._on_spoke(role, ws, msg.text)
+            return
+        if isinstance(msg, protocol.StartMsg):
+            await self._on_start()
+            return
+        await self._feed(protocol.to_event(msg))
 
     @staticmethod
     def _role_allows(role: str, msg: protocol.ClientMessage) -> bool:
         if role == protocol.KID:
-            return isinstance(msg, (protocol.SpokeMsg, protocol.EndMsg))
-        # therapist may speak, start, override, end
-        return isinstance(msg, (protocol.SpokeMsg, protocol.StartMsg, protocol.OverrideMsg, protocol.EndMsg))
+            return isinstance(msg, (protocol.JoinMsg, protocol.SpokeMsg, protocol.EndMsg))
+        return isinstance(msg, (protocol.StartMsg, protocol.SpokeMsg, protocol.OverrideMsg, protocol.EndMsg))
 
-    async def _on_spoke(self, role: str, text: str) -> None:
+    async def _on_join(self, ws: Any, name: str) -> None:
+        conn = self._conn_for_ws(ws)
+        if conn is None:
+            return
+        name = name.strip()
+        if name:
+            conn.name = name[:40]
+        await self._send(ws, protocol.identity_msg(pid=conn.pid, name=conn.name))
+        await self._send_therapist(protocol.snapshot_msg(self._snapshot()))
+
+    async def _on_start(self) -> None:
+        if not self.kids:
+            await self._send_therapist(protocol.notice_msg("No kids have joined yet."))
+            return
+        if self.machine is not None:
+            return
+        roster = {c.pid: c.name for c in self.kids.values()}  # join order = turn order
+        await self._feed(StartSession(at=0.0, roster=roster))
+
+    async def _on_spoke(self, role: str, ws: Any, text: str) -> None:
         text = text.strip()
         if not text:
             return
-        name = self.kid_name if role == protocol.KID else THERAPIST_NAME
+        if role == protocol.KID:
+            conn = self._conn_for_ws(ws)
+            if conn is None:
+                return
+            pid, name = conn.pid, conn.name
+        else:
+            pid, name = None, THERAPIST_NAME
+
         at = self.clock.now() if self.clock is not None else 0.0
-        self.transcript.append({"role": role, "name": name, "text": text, "at": at})
+        self.transcript.append({"role": role, "name": name, "pid": pid, "text": text, "at": at})
         await self._send_therapist(protocol.transcript_msg(role=role, name=name, text=text, at=at))
 
-        # Only the child's words drive the session-mechanics engine.
-        if role == protocol.KID and self.machine is not None and self.machine.state.lifecycle != Lifecycle.ENDED:
-            await self._feed(ParticipantSpoke(at=0.0, participant_id=KID_PID, text=text))
+        # Only a rostered kid's words drive the session-mechanics engine.
+        if (
+            pid is not None
+            and self.machine is not None
+            and self.machine.state.lifecycle != Lifecycle.ENDED
+            and pid in self.machine.state.roster
+        ):
+            await self._feed(ParticipantSpoke(at=0.0, participant_id=pid, text=text))
 
         self._utts_since_notes += 1
         if self._utts_since_notes >= _NOTES_EVERY:
@@ -184,8 +238,7 @@ class SessionRoom:
         await self._send_therapist(protocol.actions_msg(actions_json, lines))
 
         snapshot = self._snapshot()
-        await self._send_therapist(protocol.snapshot_msg(snapshot))
-        await self._send_kid(protocol.snapshot_msg(snapshot))
+        await self._broadcast(protocol.snapshot_msg(snapshot))
 
         # Shared, kid-appropriate prompts (activity openings/transitions), optionally phrased.
         notes_phase = self._current_phase_notes()
@@ -193,13 +246,11 @@ class SessionRoom:
         advanced = False
         for action in actions:
             if isinstance(action, SayPrompt) and action.source in _SHAREABLE:
-                text = await self.phraser.phrase(
-                    action, facilitator_notes=notes_phase, recent_history=history
-                )
+                text = await self.phraser.phrase(action, facilitator_notes=notes_phase, recent_history=history)
                 if text:
                     await self._broadcast(protocol.assistant_msg(text))
             if isinstance(action, (AcknowledgeSpeaker, InviteParticipant)):
-                advanced = True  # session moved on -> worth refreshing notes
+                advanced = True
             if isinstance(action, EndSession):
                 await self._broadcast(protocol.session_over_msg())
                 self._trigger_notes(final=True)
@@ -238,7 +289,7 @@ class SessionRoom:
 
     def _trigger_notes(self, *, final: bool = False) -> None:
         if not final and self._notes_task is not None and not self._notes_task.done():
-            return  # a refresh is already in flight; it will pick up the latest transcript
+            return
         self._utts_since_notes = 0
         self._notes_task = asyncio.create_task(self._run_notes(final=final))
 
@@ -260,6 +311,7 @@ class SessionRoom:
         return None
 
     def _snapshot(self) -> dict:
+        lobby = [{"pid": c.pid, "name": c.name} for c in self.kids.values()]
         if self.machine is None:
             return {
                 "lifecycle": Lifecycle.NOT_STARTED.value,
@@ -271,6 +323,7 @@ class SessionRoom:
                 "paused": False,
                 "agent_muted": False,
                 "participants": [],
+                "lobby": lobby,
             }
         state = self.machine.state
         roster = state.roster
@@ -304,6 +357,7 @@ class SessionRoom:
             "paused": state.paused,
             "agent_muted": state.agent_muted,
             "participants": participants,
+            "lobby": lobby,
         }
 
     async def _send(self, ws: Any | None, obj: dict) -> None:
@@ -312,12 +366,13 @@ class SessionRoom:
         with contextlib.suppress(Exception):
             await ws.send_json(obj)
 
-    async def _send_kid(self, obj: dict) -> None:
-        await self._send(self.kid_ws, obj)
+    async def _send_kids(self, obj: dict) -> None:
+        for conn in list(self.kids.values()):
+            await self._send(conn.ws, obj)
 
     async def _send_therapist(self, obj: dict) -> None:
         await self._send(self.therapist_ws, obj)
 
     async def _broadcast(self, obj: dict) -> None:
-        await self._send_kid(obj)
+        await self._send_kids(obj)
         await self._send_therapist(obj)
