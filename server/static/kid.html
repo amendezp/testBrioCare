@@ -2,72 +2,128 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>BrioCare — session</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>BrioCare — circle</title>
 <script src="https://unpkg.com/@daily-co/daily-js"></script>
 <style>
-  :root { color-scheme: light dark; --fg:#1a1a1a; --bg:#fafafa; --card:#fff;
-          --line:#e3e3e3; --accent:#2f6df0; --good:#1e9e5a; --mut:#666; }
-  @media (prefers-color-scheme: dark) {
-    :root { --fg:#e8e8e8; --bg:#161616; --card:#1e1e1e; --line:#333; --mut:#999; } }
-  * { box-sizing:border-box; }
-  body { margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center;
-         gap:16px; padding:18px; text-align:center;
-         font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-         color:var(--fg); background:var(--bg); }
+  :root {
+    /* Brightseed-aligned palette (teal + coral) */
+    --teal:#39a79e; --teal-light:#57c2b0; --teal-deep:#226468;
+    --coral:#f1697c; --coral-light:#f37a8c; --coral-soft:#fde7ea;
+    --ink:#1f3b3d; --mut:#6a8a89; --card:#ffffff;
+  }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; }
+  body {
+    margin:0; min-height:100%; display:flex; flex-direction:column; align-items:center;
+    gap:18px; padding:20px 16px 28px; text-align:center; color:var(--ink);
+    font:17px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+    background:linear-gradient(170deg, #f1fbf8 0%, #f7fbf9 45%, #fdf1f3 100%);
+  }
+  button { font-family:inherit; touch-action:manipulation; cursor:pointer; border:0; }
+
   /* join gate */
-  #gate { position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:5; }
-  #gate .box { width:100%; max-width:380px; padding:28px; text-align:center; }
-  #gate h1 { font-size:22px; margin:0 0 6px; } #gate p { color:var(--mut); margin:0 0 20px; }
-  #gate input { width:100%; padding:12px; border:1px solid var(--line); border-radius:10px;
-                background:var(--card); color:var(--fg); font-size:18px; text-align:center; margin-bottom:14px; }
-  #gate button { width:100%; padding:13px; border:0; border-radius:10px; background:var(--accent);
-                 color:#fff; font-size:17px; font-weight:700; cursor:pointer; }
+  #gate { position:fixed; inset:0; z-index:10; display:flex; align-items:center; justify-content:center;
+          background:linear-gradient(170deg, #f1fbf8 0%, #fdf1f3 100%); padding:24px; }
+  #gate .box { width:100%; max-width:420px; }
+  #gate .bird { width:128px; height:118px; margin:0 auto 8px; }
+  #gate h1 { font-size:30px; margin:6px 0 2px; color:var(--teal-deep); letter-spacing:-.01em; }
+  #gate p { color:var(--mut); margin:0 0 22px; font-size:18px; }
+  #gate input { width:100%; padding:18px 20px; border:2px solid #d7ece8; border-radius:18px;
+                background:#fff; color:var(--ink); font-size:22px; text-align:center; margin-bottom:16px; outline:none; }
+  #gate input:focus { border-color:var(--teal-light); }
+  .big-btn { width:100%; min-height:68px; padding:18px 24px; border-radius:22px; font-size:21px; font-weight:800;
+             color:#fff; background:var(--teal); box-shadow:0 10px 24px rgba(57,167,158,.35); transition:transform .08s; }
+  .big-btn:active { transform:scale(.97); }
+
   /* session */
-  #banner { font-size:20px; font-weight:700; min-height:26px; }
-  #banner.turn { color:var(--good); }
-  #assistant { max-width:680px; min-height:30px; font-size:19px; color:var(--accent); font-weight:600; }
-  #video { width:100%; max-width:680px; aspect-ratio:16/10; background:var(--card);
-           border:1px solid var(--line); border-radius:14px; overflow:hidden; }
-  .vid-off { display:flex; height:100%; align-items:center; justify-content:center; color:var(--mut); font-size:14px; padding:16px; }
-  #mic { width:150px; height:150px; border-radius:50%; border:0; cursor:pointer; color:#fff;
-         font-size:18px; font-weight:700; background:var(--accent);
-         box-shadow:0 8px 30px rgba(47,109,240,.3); transition:transform .08s, background .2s; }
+  .bird-sm { width:54px; height:50px; flex:0 0 auto; }
+  .topline { display:flex; align-items:center; gap:12px; }
+  #banner { font-size:23px; font-weight:800; min-height:30px; color:var(--teal-deep); }
+  #banner.turn { color:var(--coral); }
+  #bubble { position:relative; max-width:640px; width:100%; background:#fff; border:2px solid #eef6f4;
+            border-radius:20px; padding:16px 20px; font-size:20px; font-weight:600; color:var(--ink);
+            box-shadow:0 8px 22px rgba(34,100,104,.08); min-height:30px; display:none; }
+  #bubble.show { display:block; }
+  #bubble::before { content:""; position:absolute; top:-12px; left:40px; width:22px; height:22px; background:#fff;
+                    border-left:2px solid #eef6f4; border-top:2px solid #eef6f4; transform:rotate(45deg); }
+  #video { width:100%; max-width:640px; aspect-ratio:16/10; background:#fff; border:3px solid #fff;
+           border-radius:24px; overflow:hidden; box-shadow:0 12px 30px rgba(34,100,104,.14); }
+  .vid-off { display:flex; height:100%; align-items:center; justify-content:center; color:var(--mut); font-size:15px; padding:18px; }
+
+  /* THE mic button — the unmistakable mute/unmute indicator */
+  #mic-wrap { display:flex; flex-direction:column; align-items:center; gap:10px; margin-top:4px; }
+  #mic { width:172px; height:172px; border-radius:50%; color:#fff; font-size:0;
+         display:flex; align-items:center; justify-content:center; position:relative;
+         transition:transform .08s, background .2s, box-shadow .2s; }
+  #mic svg { width:74px; height:74px; }
   #mic:active { transform:scale(.96); }
-  #mic.on { background:#d23b3b; animation:pulse 1.3s infinite; }
-  #mic:disabled { opacity:.5; cursor:default; box-shadow:none; }
-  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(210,59,59,.5)} 100%{box-shadow:0 0 0 24px rgba(210,59,59,0)} }
-  #hint { color:var(--mut); font-size:13px; min-height:18px; }
+  #mic:disabled { opacity:.5; }
+  /* muted = coral, "tap to talk" */
+  #mic.muted { background:var(--coral); box-shadow:0 12px 30px rgba(241,105,124,.4); }
+  /* live = teal, pulsing ring */
+  #mic.live { background:var(--teal); box-shadow:0 0 0 0 rgba(57,167,158,.55); animation:ring 1.4s infinite; }
+  @keyframes ring { 0%{box-shadow:0 0 0 0 rgba(57,167,158,.5)} 100%{box-shadow:0 0 0 30px rgba(57,167,158,0)} }
+  /* extra invite glow when it's this kid's turn but still muted */
+  #mic.invite { animation:invite 1s infinite; }
+  @keyframes invite { 0%,100%{transform:scale(1)} 50%{transform:scale(1.06)} }
+  #mic-label { font-size:21px; font-weight:800; }
+  #mic-label.muted { color:var(--coral); } #mic-label.live { color:var(--teal-deep); }
+  #mic-sub { font-size:15px; color:var(--mut); min-height:20px; }
 </style>
 </head>
 <body>
+  <!-- JOIN GATE -->
   <div id="gate"><div class="box">
+    <div class="bird" id="bird-big"></div>
     <h1>Join the circle</h1>
     <p>What's your first name?</p>
     <input id="name" placeholder="Your name" autocomplete="off" maxlength="40" />
-    <button id="join">Join</button>
+    <button id="join" class="big-btn">Join the circle ✨</button>
   </div></div>
 
-  <div id="banner">Connecting…</div>
-  <div id="assistant"></div>
+  <!-- SESSION -->
+  <div class="topline"><div class="bird-sm" id="bird-sm"></div><div id="banner">Connecting…</div></div>
+  <div id="bubble"></div>
   <div id="video"><div class="vid-off">Connecting video…</div></div>
-  <button id="mic" disabled>🎤 Tap to talk</button>
-  <div id="hint"></div>
+  <div id="mic-wrap">
+    <button id="mic" class="muted" disabled aria-label="microphone"></button>
+    <div id="mic-label" class="muted">Tap to talk</div>
+    <div id="mic-sub">When this is green, everyone can hear you.</div>
+  </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const room = (params.get("room") || "demo").trim() || "demo";
-
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let ws, rec, micOn = false, started = false, callFrame = null, myPid = null, myName = "Guest";
 
-if (!SR) $("hint").textContent = "Tip: use Chrome for live transcription. Video still works.";
+// --- original BrioCare hummingbird (teal + coral) ---
+const BIRD = `
+<svg viewBox="0 0 130 120" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path d="M46 72 L13 60 L27 88 Z" fill="#f37a8c"/>
+  <path d="M60 60 Q30 40 13 52 Q36 56 54 74 Z" fill="#ec7a87"/>
+  <ellipse cx="62" cy="69" rx="25" ry="18" fill="#39a79e"/>
+  <ellipse cx="57" cy="76" rx="17" ry="10" fill="#57c2b0"/>
+  <circle cx="87" cy="50" r="15" fill="#57c2b0"/>
+  <path d="M87 35 A15 15 0 0 1 101 46 Q88 48 79 56 A15 15 0 0 1 87 35 Z" fill="#39a79e"/>
+  <path d="M101 50 L130 44 L101 55 Z" fill="#226468"/>
+  <circle cx="91" cy="47" r="2.8" fill="#1f3b3d"/>
+  <path d="M66 60 Q76 24 97 25 Q90 49 72 66 Z" fill="#f1697c"/>
+  <circle cx="122" cy="39" r="3.4" fill="#f1697c"/>
+</svg>`;
+$("bird-big").innerHTML = BIRD; $("bird-sm").innerHTML = BIRD;
+
+const MIC_ON = `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>`;
+const MIC_OFF = `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2l20 20"/><path d="M9 9v3a3 3 0 0 0 5.1 2.1"/><path d="M15 9.3V5a3 3 0 0 0-5.9-.7"/><path d="M19 10v2a7 7 0 0 1-.9 3.4"/><path d="M5 10v2a7 7 0 0 0 10.5 6"/><path d="M12 19v3"/></svg>`;
+
+let ws, rec, started = false, callFrame = null, myPid = null, myName = "Guest", live = false, myTurn = false;
 
 // --- join gate ---
 function join() {
   const name = ($("name").value || "").trim();
   if (!name) { $("name").focus(); return; }
+  myName = name;
   $("gate").style.display = "none";
   connect(name);
 }
@@ -75,59 +131,74 @@ $("join").onclick = join;
 $("name").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
 
 function connect(name) {
-  myName = name;
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws/${encodeURIComponent(room)}/kid`);
-  ws.onopen = () => { $("banner").textContent = "Waiting to start…"; ws.send(JSON.stringify({ type: "join", name })); };
-  ws.onclose = () => { $("hint").textContent = "Disconnected. Refresh to reconnect."; };
+  ws.onopen = () => { $("banner").textContent = "Getting ready… 🌱"; ws.send(JSON.stringify({ type: "join", name })); };
+  ws.onclose = () => { $("mic-sub").textContent = "Disconnected — refresh to come back."; };
   ws.onmessage = (e) => handle(JSON.parse(e.data));
 }
 
 function handle(msg) {
   if (msg.type === "room_info") mountVideo(msg.url);
-  else if (msg.type === "identity") { myPid = msg.pid; }
-  else if (msg.type === "assistant") $("assistant").textContent = msg.text;
+  else if (msg.type === "identity") myPid = msg.pid;
+  else if (msg.type === "assistant") { $("bubble").textContent = msg.text; $("bubble").classList.add("show"); }
   else if (msg.type === "snapshot") applySnapshot(msg.state);
-  else if (msg.type === "session_over") { started = false; stopMic(); $("banner").className = ""; $("banner").textContent = "All done — thank you! 🌟"; $("mic").disabled = true; }
-  else if (msg.type === "notice") $("hint").textContent = msg.text;
+  else if (msg.type === "session_over") { started = false; setLive(false); $("banner").className = ""; $("banner").textContent = "All done — great job! 🌟"; $("mic").disabled = true; }
+  else if (msg.type === "notice") $("mic-sub").textContent = msg.text;
 }
 
 function applySnapshot(st) {
   started = st.lifecycle !== "not_started" && st.lifecycle !== "ended";
-  $("mic").disabled = !SR || !started;
-  const myTurn = st.current_turn && st.current_turn === myPid;
-  if (!started) { $("banner").className = ""; $("banner").textContent = "Waiting to start…"; }
-  else if (myTurn) { $("banner").className = "turn"; $("banner").textContent = "Your turn 🎤"; }
-  else { $("banner").className = ""; $("banner").textContent = st.current_turn_name ? `${st.current_turn_name}'s turn` : "In session"; }
+  myTurn = !!(st.current_turn && st.current_turn === myPid);
+  $("mic").disabled = !started;
+  if (!started) { $("banner").className = ""; $("banner").textContent = "Getting ready… 🌱"; }
+  else if (myTurn) { $("banner").className = "turn"; $("banner").textContent = "It's your turn! ✨"; }
+  else { $("banner").className = ""; $("banner").textContent = st.current_turn_name ? `${st.current_turn_name}'s turn` : "We're listening together"; }
+  paintMic();
 }
 
-// --- Daily video (grid shows everyone) ---
+// --- Daily video (grid shows everyone; mic starts off) ---
 function mountVideo(url) {
   const el = $("video");
-  if (!url) { el.innerHTML = '<div class="vid-off">Video disabled — set DAILY_API_KEY on the server. (Transcription still works.)</div>'; return; }
+  if (!url) { el.innerHTML = '<div class="vid-off">Video is off right now. You can still take part! 🌱</div>'; return; }
   if (callFrame || !window.DailyIframe) return;
   el.innerHTML = "";
   callFrame = window.DailyIframe.createFrame(el, { showLeaveButton: false, showFullscreenButton: false, iframeStyle: { width: "100%", height: "100%", border: "0" } });
-  callFrame.join({ url, userName: myName }).catch(() => { el.innerHTML = '<div class="vid-off">Could not join the video room.</div>'; });
+  callFrame.on("joined-meeting", () => { try { callFrame.setLocalAudio(false); } catch (e) {} });
+  callFrame.on("participant-updated", (ev) => { if (ev.participant && ev.participant.local) syncLive(ev.participant.audio); });
+  callFrame.join({ url, userName: myName }).catch(() => { el.innerHTML = '<div class="vid-off">Could not join the video.</div>'; });
 }
 
-// --- speech-to-text (transcript only; no TTS) ---
-function startMic() {
-  if (!SR || micOn || $("mic").disabled) return;
-  rec = new SR(); rec.lang = "en-US"; rec.continuous = true; rec.interimResults = false;
-  rec.onresult = (ev) => {
-    for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) {
-      const text = ev.results[i][0].transcript.trim();
-      if (text && ws && ws.readyState === 1) { ws.send(JSON.stringify({ type: "spoke", text })); $("hint").textContent = `You: "${text}"`; }
-    }
-  };
-  rec.onerror = (ev) => { $("hint").textContent = "Mic: " + ev.error; };
-  rec.onend = () => { if (micOn) { try { rec.start(); } catch (e) {} } };
-  try { rec.start(); micOn = true; $("mic").classList.add("on"); $("mic").textContent = "🎤 Mic on — tap to mute"; }
-  catch (e) { $("hint").textContent = "Could not start the mic."; }
+// --- the one mic control: drives the call mic + transcription together ---
+function setLive(on) {
+  live = on;
+  if (callFrame) { try { callFrame.setLocalAudio(on); } catch (e) {} }
+  if (on) startSR(); else stopSR();
+  paintMic();
 }
-function stopMic() { micOn = false; if (rec) { try { rec.stop(); } catch (e) {} } $("mic").classList.remove("on"); $("mic").textContent = "🎤 Tap to talk"; }
-$("mic").onclick = () => { micOn ? stopMic() : startMic(); };
+function syncLive(on) { if (on !== live) { live = on; if (on) startSR(); else stopSR(); paintMic(); } }
+
+function paintMic() {
+  const mic = $("mic"), label = $("mic-label"), sub = $("mic-sub");
+  mic.innerHTML = live ? MIC_ON : MIC_OFF;
+  mic.classList.toggle("live", live);
+  mic.classList.toggle("muted", !live);
+  mic.classList.toggle("invite", !live && myTurn && started);
+  label.className = live ? "live" : "muted";
+  label.textContent = live ? "You're on — tap to mute" : (myTurn ? "Your turn — tap to talk!" : "Tap to talk");
+  sub.textContent = live ? "Everyone can hear you 🎤" : "When this is green, everyone can hear you.";
+}
+$("mic").onclick = () => { if (!$("mic").disabled) setLive(!live); };
+
+// --- speech-to-text (feeds the transcript) ---
+function startSR() {
+  if (!SR || rec) return;
+  rec = new SR(); rec.lang = "en-US"; rec.continuous = true; rec.interimResults = false;
+  rec.onresult = (ev) => { for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) { const t = ev.results[i][0].transcript.trim(); if (t && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "spoke", text: t })); } };
+  rec.onend = () => { if (live && rec) { try { rec.start(); } catch (e) {} } };
+  try { rec.start(); } catch (e) {}
+}
+function stopSR() { const r = rec; rec = null; if (r) { try { r.stop(); } catch (e) {} } }
 
 $("name").focus();
 </script>
