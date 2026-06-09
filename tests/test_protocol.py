@@ -5,49 +5,41 @@ from __future__ import annotations
 import pytest
 from server import protocol
 
-from briocare.runtime.events import (
-    ClinicianOverride,
-    EndSessionRequest,
-    OverrideCommand,
-    ParticipantSpoke,
-    StartSession,
-)
+from briocare.runtime.events import ClinicianOverride, EndSessionRequest, OverrideCommand
 
 
-def test_start_message_maps_to_start_session() -> None:
-    msg = protocol.parse_client_message('{"type":"start","kid_name":"Maya"}')
-    event = protocol.to_event(msg, kid_pid="kid1", kid_name="Friend")
-    assert isinstance(event, StartSession)
-    assert event.roster == {"kid1": "Maya"}
+def test_parse_join() -> None:
+    msg = protocol.parse_client_message('{"type":"join","name":"Maya"}')
+    assert isinstance(msg, protocol.JoinMsg)
+    assert msg.name == "Maya"
 
 
-def test_start_message_defaults_kid_name() -> None:
-    msg = protocol.parse_client_message('{"type":"start"}')
-    event = protocol.to_event(msg, kid_pid="kid1", kid_name="Friend")
-    assert isinstance(event, StartSession)
-    assert event.roster == {"kid1": "Friend"}
-
-
-def test_spoke_message_maps_to_participant_spoke() -> None:
+def test_parse_spoke() -> None:
     msg = protocol.parse_client_message('{"type":"spoke","text":"i feel happy"}')
-    event = protocol.to_event(msg, kid_pid="kid1", kid_name="Friend")
-    assert isinstance(event, ParticipantSpoke)
-    assert event.participant_id == "kid1"
-    assert event.text == "i feel happy"
+    assert isinstance(msg, protocol.SpokeMsg)
+    assert msg.text == "i feel happy"
 
 
-def test_override_message_maps_command_and_args() -> None:
+def test_parse_start() -> None:
+    assert isinstance(protocol.parse_client_message('{"type":"start"}'), protocol.StartMsg)
+
+
+def test_override_maps_to_event() -> None:
     msg = protocol.parse_client_message('{"type":"override","command":"goto_phase","args":{"phase_id":"reflect"}}')
-    event = protocol.to_event(msg, kid_pid="kid1", kid_name="Friend")
+    event = protocol.to_event(msg)
     assert isinstance(event, ClinicianOverride)
     assert event.command == OverrideCommand.GOTO_PHASE
     assert event.args == {"phase_id": "reflect"}
 
 
-def test_end_message_maps_to_end_request() -> None:
-    msg = protocol.parse_client_message('{"type":"end"}')
-    event = protocol.to_event(msg, kid_pid="kid1", kid_name="Friend")
-    assert isinstance(event, EndSessionRequest)
+def test_end_maps_to_event() -> None:
+    assert isinstance(protocol.to_event(protocol.parse_client_message('{"type":"end"}')), EndSessionRequest)
+
+
+def test_to_event_rejects_room_built_messages() -> None:
+    # start / spoke / join are built by the room (it knows the connection's pid + roster)
+    with pytest.raises(protocol.ProtocolError):
+        protocol.to_event(protocol.parse_client_message('{"type":"start"}'))
 
 
 def test_unknown_type_is_protocol_error() -> None:
@@ -58,3 +50,7 @@ def test_unknown_type_is_protocol_error() -> None:
 def test_bad_override_command_is_protocol_error() -> None:
     with pytest.raises(protocol.ProtocolError):
         protocol.parse_client_message('{"type":"override","command":"frobnicate"}')
+
+
+def test_identity_builder() -> None:
+    assert protocol.identity_msg(pid="kid2", name="Leo") == {"type": "identity", "pid": "kid2", "name": "Leo"}

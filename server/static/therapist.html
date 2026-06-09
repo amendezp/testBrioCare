@@ -69,12 +69,9 @@
         <span class="badge" id="s-muted">unmuted</span></span></div>
       <table>
         <thead><tr><th>Participant</th><th>Spoke</th><th>Nudges</th></tr></thead>
-        <tbody id="s-parts"><tr><td colspan="3" class="status">Not started.</td></tr></tbody>
+        <tbody id="s-parts"><tr><td colspan="3" class="status">Waiting for kids to join…</td></tr></tbody>
       </table>
-      <div class="row">
-        <input id="kidname" placeholder="Kid's name (optional)" autocomplete="off" />
-        <button id="btn-start">Start</button>
-      </div>
+      <button id="btn-start" disabled style="width:100%;margin-top:8px">Start session</button>
       <div class="controls">
         <button id="btn-mic" class="ghost">🎤 Mic off</button>
         <button class="ghost" data-cmd="advance_phase">Next activity</button>
@@ -193,15 +190,31 @@ function renderState(st) {
   $("s-turn").textContent = st.current_turn_name || "—";
   const p = $("s-paused"); p.textContent = st.paused ? "paused" : "running"; p.className = "badge" + (st.paused ? " on" : "");
   const m = $("s-muted"); m.textContent = st.agent_muted ? "cues muted" : "cues on"; m.className = "badge" + (st.agent_muted ? " on" : "");
+
+  const started = st.lifecycle !== "not_started";
+  const lobby = st.lobby || [];
+  const startBtn = $("btn-start");
+  startBtn.disabled = started || lobby.length === 0;
+  startBtn.textContent = started ? "Session running" : (lobby.length ? `Start session (${lobby.length} joined)` : "Start session");
+
   const tb = $("s-parts");
-  if (!st.participants || !st.participants.length) { tb.innerHTML = '<tr><td colspan="3" class="status">Not started.</td></tr>'; return; }
-  tb.innerHTML = st.participants.map(x => `<tr><td>${x.name}</td><td>${x.spoke_count}</td><td>${x.invites_received}</td></tr>`).join("");
+  if (!started) {
+    tb.innerHTML = lobby.length
+      ? lobby.map(x => `<tr><td>${x.name}</td><td class="status">in lobby</td><td>—</td></tr>`).join("")
+      : '<tr><td colspan="3" class="status">Waiting for kids to join…</td></tr>';
+    return;
+  }
+  tb.innerHTML = st.participants.map(x => {
+    const turn = x.pid === st.current_turn;
+    const style = turn ? ' style="font-weight:700;color:var(--good)"' : "";
+    return `<tr${style}><td>${turn ? "▶ " : ""}${x.name}</td><td>${x.spoke_count}</td><td>${x.invites_received}</td></tr>`;
+  }).join("");
 }
 
 // --- controls ---
 function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
 function override(command, args = {}) { send({ type: "override", command, args }); }
-$("btn-start").onclick = () => send({ type: "start", kid_name: $("kidname").value || null });
+$("btn-start").onclick = () => send({ type: "start" });
 $("btn-end").onclick = () => send({ type: "end" });
 $("btn-skip").onclick = () => { if (snapshot.current_turn) override("skip_participant", { pid: snapshot.current_turn }); };
 $("btn-inject").onclick = () => { const t = $("inject").value.trim(); if (t) { override("inject_prompt", { text: t }); $("inject").value = ""; } };

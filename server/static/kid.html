@@ -15,13 +15,21 @@
          gap:16px; padding:18px; text-align:center;
          font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
          color:var(--fg); background:var(--bg); }
+  /* join gate */
+  #gate { position:fixed; inset:0; background:var(--bg); display:flex; align-items:center; justify-content:center; z-index:5; }
+  #gate .box { width:100%; max-width:380px; padding:28px; text-align:center; }
+  #gate h1 { font-size:22px; margin:0 0 6px; } #gate p { color:var(--mut); margin:0 0 20px; }
+  #gate input { width:100%; padding:12px; border:1px solid var(--line); border-radius:10px;
+                background:var(--card); color:var(--fg); font-size:18px; text-align:center; margin-bottom:14px; }
+  #gate button { width:100%; padding:13px; border:0; border-radius:10px; background:var(--accent);
+                 color:#fff; font-size:17px; font-weight:700; cursor:pointer; }
+  /* session */
   #banner { font-size:20px; font-weight:700; min-height:26px; }
   #banner.turn { color:var(--good); }
   #assistant { max-width:680px; min-height:30px; font-size:19px; color:var(--accent); font-weight:600; }
   #video { width:100%; max-width:680px; aspect-ratio:16/10; background:var(--card);
            border:1px solid var(--line); border-radius:14px; overflow:hidden; }
-  .vid-off { display:flex; height:100%; align-items:center; justify-content:center; color:var(--mut);
-             font-size:14px; padding:16px; }
+  .vid-off { display:flex; height:100%; align-items:center; justify-content:center; color:var(--mut); font-size:14px; padding:16px; }
   #mic { width:150px; height:150px; border-radius:50%; border:0; cursor:pointer; color:#fff;
          font-size:18px; font-weight:700; background:var(--accent);
          box-shadow:0 8px 30px rgba(47,109,240,.3); transition:transform .08s, background .2s; }
@@ -30,10 +38,16 @@
   #mic:disabled { opacity:.5; cursor:default; box-shadow:none; }
   @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(210,59,59,.5)} 100%{box-shadow:0 0 0 24px rgba(210,59,59,0)} }
   #hint { color:var(--mut); font-size:13px; min-height:18px; }
-  .warn { max-width:520px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:20px; }
 </style>
 </head>
 <body>
+  <div id="gate"><div class="box">
+    <h1>Join the circle</h1>
+    <p>What's your first name?</p>
+    <input id="name" placeholder="Your name" autocomplete="off" maxlength="40" />
+    <button id="join">Join</button>
+  </div></div>
+
   <div id="banner">Connecting…</div>
   <div id="assistant"></div>
   <div id="video"><div class="vid-off">Connecting video…</div></div>
@@ -44,75 +58,66 @@
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const room = (params.get("room") || "demo").trim() || "demo";
-const KID_PID = "kid1";
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let ws, rec, micOn = false, started = false, callFrame = null;
+let ws, rec, micOn = false, started = false, callFrame = null, myPid = null;
 
-if (!SR) {
-  $("hint").textContent = "Tip: use Chrome for live transcription. Video will still work.";
+if (!SR) $("hint").textContent = "Tip: use Chrome for live transcription. Video still works.";
+
+// --- join gate ---
+function join() {
+  const name = ($("name").value || "").trim();
+  if (!name) { $("name").focus(); return; }
+  $("gate").style.display = "none";
+  connect(name);
 }
+$("join").onclick = join;
+$("name").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
 
-function connect() {
+function connect(name) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws/${encodeURIComponent(room)}/kid`);
-  ws.onopen = () => { $("banner").textContent = "Waiting to start…"; };
+  ws.onopen = () => { $("banner").textContent = "Waiting to start…"; ws.send(JSON.stringify({ type: "join", name })); };
   ws.onclose = () => { $("hint").textContent = "Disconnected. Refresh to reconnect."; };
   ws.onmessage = (e) => handle(JSON.parse(e.data));
 }
 
 function handle(msg) {
-  if (msg.type === "room_info") {
-    mountVideo(msg.url);
-  } else if (msg.type === "assistant") {
-    $("assistant").textContent = msg.text;
-  } else if (msg.type === "snapshot") {
-    applySnapshot(msg.state);
-  } else if (msg.type === "session_over") {
-    started = false; stopMic();
-    $("banner").className = ""; $("banner").textContent = "All done — thank you! 🌟";
-    $("mic").disabled = true;
-  } else if (msg.type === "notice") {
-    $("hint").textContent = msg.text;
-  }
+  if (msg.type === "room_info") mountVideo(msg.url);
+  else if (msg.type === "identity") { myPid = msg.pid; }
+  else if (msg.type === "assistant") $("assistant").textContent = msg.text;
+  else if (msg.type === "snapshot") applySnapshot(msg.state);
+  else if (msg.type === "session_over") { started = false; stopMic(); $("banner").className = ""; $("banner").textContent = "All done — thank you! 🌟"; $("mic").disabled = true; }
+  else if (msg.type === "notice") $("hint").textContent = msg.text;
 }
 
 function applySnapshot(st) {
   started = st.lifecycle !== "not_started" && st.lifecycle !== "ended";
   $("mic").disabled = !SR || !started;
-  const myTurn = st.current_turn === KID_PID;
+  const myTurn = st.current_turn && st.current_turn === myPid;
   if (!started) { $("banner").className = ""; $("banner").textContent = "Waiting to start…"; }
   else if (myTurn) { $("banner").className = "turn"; $("banner").textContent = "Your turn 🎤"; }
-  else { $("banner").className = ""; $("banner").textContent = "In session"; }
+  else { $("banner").className = ""; $("banner").textContent = st.current_turn_name ? `${st.current_turn_name}'s turn` : "In session"; }
 }
 
-// --- Daily video ----------------------------------------------------------
+// --- Daily video (grid shows everyone) ---
 function mountVideo(url) {
   const el = $("video");
   if (!url) { el.innerHTML = '<div class="vid-off">Video disabled — set DAILY_API_KEY on the server. (Transcription still works.)</div>'; return; }
   if (callFrame || !window.DailyIframe) return;
   el.innerHTML = "";
-  callFrame = window.DailyIframe.createFrame(el, {
-    showLeaveButton: false, showFullscreenButton: false,
-    iframeStyle: { width: "100%", height: "100%", border: "0" },
-  });
+  callFrame = window.DailyIframe.createFrame(el, { showLeaveButton: false, showFullscreenButton: false, iframeStyle: { width: "100%", height: "100%", border: "0" } });
   callFrame.join({ url }).catch(() => { el.innerHTML = '<div class="vid-off">Could not join the video room.</div>'; });
 }
 
-// --- speech-to-text (transcript only; no TTS) -----------------------------
+// --- speech-to-text (transcript only; no TTS) ---
 function startMic() {
   if (!SR || micOn || $("mic").disabled) return;
-  rec = new SR();
-  rec.lang = "en-US"; rec.continuous = true; rec.interimResults = false;
+  rec = new SR(); rec.lang = "en-US"; rec.continuous = true; rec.interimResults = false;
   rec.onresult = (ev) => {
-    for (let i = ev.resultIndex; i < ev.results.length; i++) {
-      if (ev.results[i].isFinal) {
-        const text = ev.results[i][0].transcript.trim();
-        if (text && ws && ws.readyState === 1) {
-          ws.send(JSON.stringify({ type: "spoke", text }));
-          $("hint").textContent = `You: "${text}"`;
-        }
-      }
+    for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) {
+      const text = ev.results[i][0].transcript.trim();
+      if (text && ws && ws.readyState === 1) { ws.send(JSON.stringify({ type: "spoke", text })); $("hint").textContent = `You: "${text}"`; }
     }
   };
   rec.onerror = (ev) => { $("hint").textContent = "Mic: " + ev.error; };
@@ -120,14 +125,10 @@ function startMic() {
   try { rec.start(); micOn = true; $("mic").classList.add("on"); $("mic").textContent = "🎤 Mic on — tap to mute"; }
   catch (e) { $("hint").textContent = "Could not start the mic."; }
 }
-function stopMic() {
-  micOn = false;
-  if (rec) { try { rec.stop(); } catch (e) {} }
-  $("mic").classList.remove("on"); $("mic").textContent = "🎤 Tap to talk";
-}
+function stopMic() { micOn = false; if (rec) { try { rec.stop(); } catch (e) {} } $("mic").classList.remove("on"); $("mic").textContent = "🎤 Tap to talk"; }
 $("mic").onclick = () => { micOn ? stopMic() : startMic(); };
 
-connect();
+$("name").focus();
 </script>
 </body>
 </html>

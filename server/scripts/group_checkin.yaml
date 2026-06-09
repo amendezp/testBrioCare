@@ -1,0 +1,103 @@
+schema_version: 1
+id: group_checkin
+title: Group Feelings Circle
+description: >
+  A short group check-in the therapist guides: a warm-up, then a go-around where each
+  child shares how they're feeling (round-robin, everyone gets a turn, quiet kids are
+  gently invited), then a brief open reflection. Timers are short so the demo moves.
+age_range: [7, 11]
+recommended_group_size: [1, 6]
+
+intro_prompt:
+  text: >
+    Hi everyone, welcome to our circle. We're going to start by checking in about how
+    we're each feeling today. There are no wrong answers here.
+
+closing_prompt:
+  text: >
+    Thank you all for sharing today. Let's take one slow breath together, and get ready
+    for what's next. Great job, everyone.
+
+phases:
+  - id: warmup
+    title: Warm-up
+    opening_prompt:
+      text: >
+        Let's warm up. I'll name a feeling, and if you want, you can call out a time you
+        felt that way. "Excited" — when have you felt excited?
+      addressed_to: group
+    transition_prompt:
+      text: Nice warm-up, everyone. Now let's go around the circle.
+    acknowledge_speakers: false
+    turn_policy:
+      order: popcorn
+      allow_pass: true
+      one_turn_per_participant: false
+    participation:
+      require_all_speak: false
+      quiet_participant_strategy: skip
+    pacing:
+      min_phase_seconds: 0
+      max_phase_seconds: 40
+      wrapup_warning_seconds: 12
+      advance_when: timer
+    facilitator_notes: >
+      A whole-group warm-up with children aged 7-11. Light and encouraging; no pressure
+      for anyone to speak yet.
+
+  - id: go_around
+    title: Go around the circle
+    opening_prompt:
+      text: >
+        Now let's go around the circle. When it's your turn, tell us one word or a short
+        sentence about how you're feeling right now. You can always say "pass."
+      addressed_to: current_turn
+    transition_prompt:
+      text: Thank you, everyone, for sharing how you feel.
+    acknowledge_speakers: true
+    turn_policy:
+      order: round_robin
+      per_turn_seconds: 25
+      per_turn_hard_seconds: 45
+      allow_pass: true
+      one_turn_per_participant: true
+    participation:
+      require_all_speak: true
+      invite_quiet_after_seconds: 15
+      max_invites_per_participant: 2
+      quiet_participant_strategy: direct_invite
+      honor_pass: true
+    pacing:
+      min_phase_seconds: 0
+      max_phase_seconds: 150
+      wrapup_warning_seconds: 25
+      advance_when: all_spoke_or_timer
+    facilitator_notes: >
+      A round-robin feelings check-in with a small group of children. Validate each
+      child's feeling warmly and briefly; gently invite quieter children when prompted.
+
+  - id: reflect
+    title: Open reflection
+    opening_prompt:
+      text: >
+        Before we wrap up — does anyone want to add anything, or say something about what
+        someone else shared? It's okay if not.
+      addressed_to: group
+    transition_prompt:
+      text: Okay, let's wrap up our circle.
+    acknowledge_speakers: true
+    turn_policy:
+      order: open
+      allow_pass: true
+      one_turn_per_participant: false
+    participation:
+      require_all_speak: false
+      quiet_participant_strategy: skip
+    pacing:
+      min_phase_seconds: 0
+      max_phase_seconds: 45
+      wrapup_warning_seconds: 15
+      advance_when: timer
+    facilitator_notes: >
+      Optional open reflection for the group. Encouraging and brief; never push a child
+      who has nothing to add.

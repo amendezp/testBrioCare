@@ -53,7 +53,7 @@ from server.phraser import Phraser  # noqa: E402
 from server.room import SessionRoom  # noqa: E402
 
 _STATIC = Path(__file__).resolve().parent / "static"
-_SOLO_SCRIPT = Path(__file__).resolve().parent / "scripts" / "solo_checkin.yaml"
+_GROUP_SCRIPT = Path(__file__).resolve().parent / "scripts" / "group_checkin.yaml"
 
 app = FastAPI(title="BrioCare Telehealth Co-Pilot")
 
@@ -68,7 +68,7 @@ def _get_or_create_room(code: str) -> SessionRoom:
     if room is None:
         room = SessionRoom(
             code,
-            load_script(_SOLO_SCRIPT),
+            load_script(_GROUP_SCRIPT),
             phraser=_phraser,
             notes=_notes,
             daily=_daily,
@@ -111,7 +111,7 @@ async def ws_endpoint(ws: WebSocket, room: str, role: str) -> None:
     try:
         while True:
             raw = await ws.receive_text()
-            await session.handle_client_message(role, raw)
+            await session.handle_client_message(role, ws, raw)
     except WebSocketDisconnect:
         pass
     finally:
