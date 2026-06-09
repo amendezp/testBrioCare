@@ -48,24 +48,30 @@ class Daily:
 
         name = _room_name(code)
         headers = {"Authorization": f"Bearer {self._key}"}
-        body = {
-            "name": name,
-            "privacy": "public",
-            "properties": {
-                "exp": int(time.time()) + _ROOM_TTL_SECONDS,
-                "enable_chat": False,
-                "enable_prejoin_ui": False,
-            },
+        properties = {
+            "exp": int(time.time()) + _ROOM_TTL_SECONDS,
+            "enable_chat": False,
+            "enable_prejoin_ui": False,
+            "start_audio_off": True,  # everyone joins muted; they tap to be heard
+            "start_video_off": False,
         }
+        body = {"name": name, "privacy": "public", "properties": properties}
         try:
             async with httpx.AsyncClient(timeout=8.0) as client:
                 resp = await client.post(_API, headers=headers, json=body)
                 if resp.status_code == 200:
                     url = resp.json().get("url")
                 elif resp.status_code == 400:
-                    # Most likely the room already exists — fetch it.
-                    got = await client.get(f"{_API}/{name}", headers=headers)
-                    url = got.json().get("url") if got.status_code == 200 else None
+                    # Room already exists — update it so the (possibly older) room
+                    # also starts muted, then use its url.
+                    upd = await client.post(
+                        f"{_API}/{name}", headers=headers, json={"properties": properties}
+                    )
+                    if upd.status_code == 200:
+                        url = upd.json().get("url")
+                    else:
+                        got = await client.get(f"{_API}/{name}", headers=headers)
+                        url = got.json().get("url") if got.status_code == 200 else None
                 else:
                     url = None
         except Exception:

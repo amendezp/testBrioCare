@@ -54,6 +54,71 @@ def test_creates_and_caches_room(monkeypatch) -> None:
     assert calls["post"] == 1
 
 
+def test_room_starts_muted(monkeypatch) -> None:
+    monkeypatch.setenv("DAILY_API_KEY", "test-key")
+    captured: dict = {}
+
+    class _Resp:
+        def __init__(self, code: int, data: dict) -> None:
+            self.status_code = code
+            self._data = data
+
+        def json(self) -> dict:
+            return self._data
+
+    class _Client:
+        def __init__(self, *a, **k) -> None:
+            pass
+
+        async def __aenter__(self) -> _Client:
+            return self
+
+        async def __aexit__(self, *a) -> bool:
+            return False
+
+        async def post(self, url, headers=None, json=None) -> _Resp:
+            captured["properties"] = json["properties"]
+            return _Resp(200, {"url": "https://x.daily.co/briocare-demo"})
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    asyncio.run(Daily().get_or_create_room("demo"))
+    assert captured["properties"]["start_audio_off"] is True
+
+
+def test_updates_existing_room(monkeypatch) -> None:
+    monkeypatch.setenv("DAILY_API_KEY", "test-key")
+    posts: list[str] = []
+
+    class _Resp:
+        def __init__(self, code: int, data: dict) -> None:
+            self.status_code = code
+            self._data = data
+
+        def json(self) -> dict:
+            return self._data
+
+    class _Client:
+        def __init__(self, *a, **k) -> None:
+            pass
+
+        async def __aenter__(self) -> _Client:
+            return self
+
+        async def __aexit__(self, *a) -> bool:
+            return False
+
+        async def post(self, url, headers=None, json=None) -> _Resp:
+            posts.append(url)
+            if url.endswith("/rooms"):
+                return _Resp(400, {"error": "exists"})  # create -> already exists
+            return _Resp(200, {"url": "https://x.daily.co/briocare-demo"})  # update by name
+
+    monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    url = asyncio.run(Daily().get_or_create_room("demo"))
+    assert url == "https://x.daily.co/briocare-demo"
+    assert posts[-1].endswith("/rooms/briocare-demo")  # updated the existing room
+
+
 def test_returns_none_on_error(monkeypatch) -> None:
     monkeypatch.setenv("DAILY_API_KEY", "test-key")
 
