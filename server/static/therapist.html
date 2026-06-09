@@ -148,7 +148,7 @@ function mountVideo(url) {
     showLeaveButton: false, showFullscreenButton: false,
     iframeStyle: { width: "100%", height: "100%", border: "0" },
   });
-  callFrame.join({ url }).catch(() => { el.innerHTML = '<div class="vid-off">Could not join the video room.</div>'; });
+  callFrame.join({ url, userName: "Therapist" }).catch(() => { el.innerHTML = '<div class="vid-off">Could not join the video room.</div>'; });
 }
 
 // --- feeds ---
