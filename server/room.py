@@ -15,13 +15,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from briocare.io.facilitator_sink import render_action
 from briocare.runtime.actions import (
     AcknowledgeSpeaker,
+    AdvancePhase,
     EndSession,
     InviteParticipant,
+    InviteReason,
     PromptSource,
     SayPrompt,
 )
@@ -76,6 +79,7 @@ class SessionRoom:
 
         self.machine: SessionMachine | None = None
         self.clock: WallClock | None = None
+        self.started_at: datetime | None = None
         self.therapist_ws: Any | None = None
         self.kids: dict[str, KidConn] = {}  # pid -> conn, in join order
         self._kid_seq = 0
@@ -197,7 +201,7 @@ class SessionRoom:
 
         at = self.clock.now() if self.clock is not None else 0.0
         self.transcript.append({"role": role, "name": name, "pid": pid, "text": text, "at": at})
-        await self._send_therapist(protocol.transcript_msg(role=role, name=name, text=text, at=at))
+        await self._send_therapist(protocol.transcript_msg(role=role, name=name, text=text, at=at, pid=pid))
 
         # Only a rostered kid's words drive the session-mechanics engine.
         if (
@@ -220,6 +224,7 @@ class SessionRoom:
                 if not isinstance(event, StartSession):
                     return
                 self.clock = WallClock()
+                self.started_at = datetime.now().astimezone()
                 self.machine = SessionMachine(self.script, self.clock)
             assert self.clock is not None and self.machine is not None
 
@@ -232,10 +237,13 @@ class SessionRoom:
         assert self.machine is not None
         roster = dict(self.machine.state.roster)
 
-        # Therapist: full action/cue feed + live state snapshot.
+        # Therapist: raw action log (kept for debugging/tests) + plain-language cues.
         actions_json = [a.model_dump(mode="json") for a in actions]
         lines = [render_action(a, roster) for a in actions]
         await self._send_therapist(protocol.actions_msg(actions_json, lines))
+        cues = self._friendly_cues(actions, roster)
+        if cues:
+            await self._send_therapist(protocol.cues_msg(cues))
 
         snapshot = self._snapshot()
         await self._broadcast(protocol.snapshot_msg(snapshot))
@@ -256,6 +264,41 @@ class SessionRoom:
                 self._trigger_notes(final=True)
         if advanced:
             self._trigger_notes()
+
+    def _friendly_cues(self, actions: list[Any], roster: dict[str, str]) -> list[dict]:
+        """Turn a step's engine actions into plain, actionable therapist cues.
+
+        Only actionable items survive; NoOp / acknowledgements / raw prompts are dropped.
+        """
+
+        def who(pid: str) -> str:
+            return roster.get(pid, pid)
+
+        def cue(icon: str, text: str, level: str, pid: str | None = None) -> None:
+            cues.append({"icon": icon, "text": text, "level": level, "pid": pid})
+
+        cues: list[dict] = []
+        for a in actions:
+            if isinstance(a, InviteParticipant):
+                if a.reason == InviteReason.QUIET_NUDGE:
+                    att = f" ({a.attempt}/{a.max_attempts})" if a.attempt else ""
+                    cue("🔔", f"Invite {who(a.participant_id)} — quiet for a bit{att}", "action", a.participant_id)
+                elif a.reason == InviteReason.ROUND_ROBIN_TURN:
+                    cue("👉", f"{who(a.participant_id)}'s turn to share", "action", a.participant_id)
+                else:
+                    cue("👉", f"Over to {who(a.participant_id)}", "action", a.participant_id)
+            elif isinstance(a, SayPrompt) and a.source == PromptSource.WRAPUP_WARNING:
+                cues.append({"icon": "⏳", "text": "About a minute left in this activity", "level": "time"})
+            elif isinstance(a, SayPrompt) and a.source == PromptSource.INTRO:
+                cues.append({"icon": "🌱", "text": "Session started", "level": "info"})
+            elif isinstance(a, AdvancePhase) and a.to_phase:
+                title = a.to_phase
+                with contextlib.suppress(KeyError):
+                    title = self.script.phase_by_id(a.to_phase).title
+                cues.append({"icon": "✅", "text": f"Next: {title}", "level": "info"})
+            elif isinstance(a, EndSession):
+                cues.append({"icon": "🏁", "text": "Session ended", "level": "info"})
+        return cues
 
     # -- real-time deadline driving (unchanged scaffolding) ----------------
 
@@ -310,24 +353,44 @@ class SessionRoom:
             return self.script.phase_by_id(self.machine.state.phase.phase_id).facilitator_notes
         return None
 
+    def _engagement(self) -> dict[str, dict]:
+        """Session-total speaking stats per kid, derived from the transcript."""
+        eng: dict[str, dict] = {}
+        for e in self.transcript:
+            if e.get("role") == protocol.KID and e.get("pid"):
+                d = eng.setdefault(e["pid"], {"utterances": 0, "words": 0, "last_at": None})
+                d["utterances"] += 1
+                d["words"] += len(e.get("text", "").split())
+                d["last_at"] = e.get("at")
+        return eng
+
     def _snapshot(self) -> dict:
         lobby = [{"pid": c.pid, "name": c.name} for c in self.kids.values()]
+        header = {
+            "started_at": self.started_at.isoformat() if self.started_at else None,
+            "elapsed_seconds": self.clock.now() if self.clock is not None else 0.0,
+            "activity_total": len(self.script.phases),
+        }
         if self.machine is None:
             return {
                 "lifecycle": Lifecycle.NOT_STARTED.value,
                 "phase_id": None,
                 "phase_title": None,
                 "phase_index": -1,
+                "activity_index": -1,
                 "current_turn": None,
                 "current_turn_name": None,
                 "paused": False,
                 "agent_muted": False,
                 "participants": [],
                 "lobby": lobby,
+                **header,
             }
         state = self.machine.state
         roster = state.roster
         phase = state.phase
+        now = self.clock.now() if self.clock is not None else 0.0
+        eng = self._engagement()
         phase_title = None
         if phase is not None:
             with contextlib.suppress(KeyError):
@@ -337,6 +400,8 @@ class SessionRoom:
         if phase is not None:
             for pid, name in roster.items():
                 ps = phase.per_participant.get(pid)
+                en = eng.get(pid, {})
+                last_at = en.get("last_at")
                 participants.append(
                     {
                         "pid": pid,
@@ -345,6 +410,9 @@ class SessionRoom:
                         "passed": ps.passed if ps else False,
                         "skipped": ps.skipped if ps else False,
                         "invites_received": ps.invites_received if ps else 0,
+                        "utterances": en.get("utterances", 0),
+                        "words": en.get("words", 0),
+                        "last_spoke_ago": (now - last_at) if last_at is not None else None,
                     }
                 )
         return {
@@ -352,12 +420,14 @@ class SessionRoom:
             "phase_id": phase.phase_id if phase is not None else None,
             "phase_title": phase_title,
             "phase_index": state.phase_index,
+            "activity_index": state.phase_index,
             "current_turn": current_turn,
             "current_turn_name": roster.get(current_turn) if current_turn else None,
             "paused": state.paused,
             "agent_muted": state.agent_muted,
             "participants": participants,
             "lobby": lobby,
+            **header,
         }
 
     async def _send(self, ws: Any | None, obj: dict) -> None:

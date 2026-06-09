@@ -54,3 +54,13 @@ def test_bad_override_command_is_protocol_error() -> None:
 
 def test_identity_builder() -> None:
     assert protocol.identity_msg(pid="kid2", name="Leo") == {"type": "identity", "pid": "kid2", "name": "Leo"}
+
+
+def test_transcript_includes_pid() -> None:
+    m = protocol.transcript_msg(role="kid", name="Maya", text="hi", at=1.0, pid="kid1")
+    assert m["type"] == "transcript" and m["pid"] == "kid1" and m["name"] == "Maya"
+
+
+def test_cues_builder() -> None:
+    m = protocol.cues_msg([{"icon": "👉", "text": "Leo's turn", "level": "action"}])
+    assert m["type"] == "cues" and m["cues"][0]["text"] == "Leo's turn"
