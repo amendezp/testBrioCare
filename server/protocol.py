@@ -101,9 +101,14 @@ def identity_msg(*, pid: str, name: str) -> dict:
     return {"type": "identity", "pid": pid, "name": name}
 
 
-def transcript_msg(*, role: str, name: str, text: str, at: float) -> dict:
+def transcript_msg(*, role: str, name: str, text: str, at: float, pid: str | None = None) -> dict:
     """One speaker-tagged line of the running transcript (therapist-facing)."""
-    return {"type": "transcript", "role": role, "name": name, "text": text, "at": at}
+    return {"type": "transcript", "role": role, "name": name, "pid": pid, "text": text, "at": at}
+
+
+def cues_msg(cues: list[dict]) -> dict:
+    """Plain, actionable co-pilot cues built from a step's engine actions."""
+    return {"type": "cues", "cues": cues}
 
 
 def actions_msg(actions_json: list[dict], lines: list[str]) -> dict:

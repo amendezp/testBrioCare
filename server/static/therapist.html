@@ -6,106 +6,139 @@
 <title>BrioCare — therapist console</title>
 <script src="https://unpkg.com/@daily-co/daily-js"></script>
 <style>
-  :root { color-scheme: light dark; --fg:#1a1a1a; --bg:#fafafa; --card:#fff;
-          --line:#e3e3e3; --accent:#2f6df0; --mut:#666; --good:#1e9e5a; --warn:#c0392b; --kid:#1e9e5a; }
-  @media (prefers-color-scheme: dark) {
-    :root { --fg:#e8e8e8; --bg:#161616; --card:#1e1e1e; --line:#333; --mut:#999; } }
+  :root {
+    --teal:#39a79e; --teal-light:#57c2b0; --teal-deep:#226468;
+    --coral:#f1697c; --coral-light:#f37a8c; --amber:#e8902c;
+    --ink:#1f3b3d; --mut:#6a8a89; --line:#e7f0ee; --card:#fff;
+    --bg:#f4faf8;
+  }
   * { box-sizing:border-box; }
-  body { margin:0; font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-         color:var(--fg); background:var(--bg); }
-  header { padding:12px 18px; border-bottom:1px solid var(--line); display:flex; align-items:baseline; gap:10px; }
-  h1 { margin:0; font-size:16px; } .pill { color:var(--mut); font-size:12px; }
-  main { max-width:1280px; margin:0 auto; padding:14px 18px; display:grid;
-         grid-template-columns:360px 1fr; gap:14px; align-items:start; }
-  @media (max-width:900px){ main{ grid-template-columns:1fr; } }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:12px; }
-  h2 { margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:.04em; color:var(--mut); }
-  #video { width:100%; aspect-ratio:16/10; background:var(--card); border:1px solid var(--line);
-           border-radius:10px; overflow:hidden; margin-bottom:14px; }
-  .vid-off { display:flex; height:100%; align-items:center; justify-content:center; color:var(--mut); font-size:13px; padding:14px; text-align:center; }
-  .kv { display:flex; justify-content:space-between; padding:3px 0; border-bottom:1px dashed var(--line); }
-  .kv span:first-child { color:var(--mut); }
-  .badge { font-size:12px; padding:1px 7px; border-radius:20px; border:1px solid var(--line); }
-  .badge.on { color:var(--warn); border-color:var(--warn); }
-  table { width:100%; border-collapse:collapse; margin-top:6px; font-size:13px; }
-  th,td { text-align:left; padding:4px 6px; border-bottom:1px solid var(--line); }
-  th { color:var(--mut); font-weight:600; }
-  .controls { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; }
-  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:8px 12px;
-           font-size:13px; font-weight:600; cursor:pointer; }
-  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--line); }
-  button.on { background:#d23b3b; }
-  .row { display:flex; gap:8px; margin-top:10px; }
-  .row input { flex:1; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:transparent; color:var(--fg); }
-  .right { display:grid; grid-template-rows:auto auto; gap:14px; }
-  .feeds { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
-  @media (max-width:1100px){ .feeds{ grid-template-columns:1fr; } }
-  .scroll { height:300px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:10px; }
-  .notes { min-height:160px; max-height:420px; overflow:auto; }
-  .notes h3 { font-size:14px; margin:12px 0 4px; } .notes ul { margin:4px 0 4px 18px; padding:0; }
-  .notes p { margin:4px 0; } .notes em { color:var(--mut); }
-  .t-line { margin:2px 0; } .t-line .who { font-weight:700; } .t-line.kid .who { color:var(--kid); }
-  .t-line.therapist .who { color:var(--accent); }
-  pre#log { margin:0; white-space:pre-wrap; font:12px/1.5 ui-monospace,Menlo,monospace; }
-  .status { color:var(--mut); font-size:12px; }
-  .final-tag { color:var(--good); font-size:11px; font-weight:700; }
+  body { margin:0; font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+         color:var(--ink); background:var(--bg); }
+  header { display:flex; align-items:center; gap:10px; padding:12px 18px; background:#fff; border-bottom:1px solid var(--line); }
+  header .bird { width:30px; height:28px; } header h1 { margin:0; font-size:16px; color:var(--teal-deep); }
+  .pill { color:var(--mut); font-size:12px; margin-left:auto; }
+
+  /* session bar */
+  .sessionbar { display:flex; flex-wrap:wrap; align-items:center; gap:10px 18px; padding:12px 18px;
+                background:#fff; border-bottom:1px solid var(--line); }
+  .badge { font-size:13px; font-weight:800; padding:4px 12px; border-radius:20px; background:#eef6f4; color:var(--teal-deep); }
+  .badge.live { background:#e3f6ee; color:#1e9e5a; } .badge.paused { background:#fdeede; color:var(--amber); }
+  .badge.ended { background:#f0eef6; color:#6a5acd; }
+  .sb-item { font-size:13px; color:var(--mut); } .sb-item b { color:var(--ink); font-weight:700; }
+  .sb-activity { font-size:14px; font-weight:700; color:var(--teal-deep); }
+
+  main { max-width:1320px; margin:0 auto; padding:14px 18px; display:grid; grid-template-columns:minmax(360px,1.1fr) 1fr; gap:14px; align-items:start; }
+  @media (max-width:980px){ main{ grid-template-columns:1fr; } }
+  .col { display:flex; flex-direction:column; gap:14px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; }
+  h2 { margin:0 0 10px; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--mut); }
+
+  /* video grid */
+  #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
+  .tile { position:relative; aspect-ratio:4/3; background:#0e2224; border-radius:12px; overflow:hidden; }
+  .tile video { width:100%; height:100%; object-fit:cover; background:#0e2224; }
+  .tile .nm { position:absolute; left:6px; bottom:6px; font-size:12px; font-weight:800; color:#fff;
+              padding:2px 8px; border-radius:8px; background:var(--teal-deep); max-width:85%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tile .mute { position:absolute; right:6px; top:6px; font-size:14px; }
+  .tile.turn { outline:3px solid var(--coral); }
+  .vid-off { padding:18px; color:var(--mut); font-size:13px; text-align:center; }
+
+  /* engagement */
+  .eng { display:flex; flex-direction:column; gap:8px; }
+  .erow { display:grid; grid-template-columns:14px 1fr auto; gap:8px; align-items:center; padding:7px 8px; border-radius:10px; background:#fbfdfc; border:1px solid var(--line); }
+  .erow.turn { border-color:var(--coral); background:#fff5f6; }
+  .dot { width:12px; height:12px; border-radius:50%; }
+  .ename { font-weight:800; } .erow .meta { font-size:12px; color:var(--mut); }
+  .chip { font-size:11px; font-weight:800; padding:1px 7px; border-radius:20px; }
+  .chip.active { background:#e3f6ee; color:#1e9e5a; } .chip.quiet { background:#fdeede; color:var(--amber); } .chip.none { background:#eef0f0; color:var(--mut); }
+  .estats { text-align:right; font-size:12px; color:var(--mut); white-space:nowrap; }
+  .bar { height:6px; border-radius:6px; background:#edf3f1; margin-top:5px; overflow:hidden; }
+  .bar > i { display:block; height:100%; border-radius:6px; }
+
+  /* controls */
+  .controls { display:flex; flex-wrap:wrap; gap:7px; }
+  button { font-family:inherit; border:0; border-radius:10px; padding:9px 13px; font-size:13px; font-weight:700; cursor:pointer; background:var(--teal); color:#fff; }
+  button.ghost { background:#fff; color:var(--teal-deep); border:1.5px solid var(--line); }
+  button.warn { background:#fff; color:var(--coral); border:1.5px solid #f6d6db; }
+  button.on { background:var(--coral); color:#fff; border:0; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:8px; margin-top:9px; }
+  .row input { flex:1; padding:9px 11px; border:1.5px solid var(--line); border-radius:10px; background:#fff; color:var(--ink); }
+
+  /* cues + transcript + notes */
+  .cues { display:flex; flex-direction:column; gap:7px; max-height:230px; overflow:auto; }
+  .cue { display:flex; gap:9px; align-items:flex-start; padding:9px 11px; border-radius:10px; background:#fbfdfc; border-left:4px solid var(--teal); }
+  .cue.action { border-left-color:var(--coral); background:#fff5f6; } .cue.time { border-left-color:var(--amber); background:#fdf6ec; }
+  .cue .ic { font-size:16px; } .cue .tx { font-size:14px; font-weight:600; }
+  .cue .ago { margin-left:auto; font-size:11px; color:var(--mut); }
+  .scroll { max-height:300px; overflow:auto; }
+  .t-line { margin:3px 0; font-size:13.5px; } .t-line .who { font-weight:800; } .t-line .txt { color:var(--ink); }
+  .notes { max-height:360px; overflow:auto; } .notes h3 { font-size:14px; margin:12px 0 4px; color:var(--teal-deep); }
+  .notes ul { margin:4px 0 4px 18px; padding:0; } .notes p { margin:4px 0; } .notes em { color:var(--mut); }
+  .status { color:var(--mut); font-size:12px; } .final-tag { color:#1e9e5a; font-size:11px; font-weight:800; }
 </style>
 </head>
 <body>
 <header>
+  <div class="bird" id="bird"></div>
   <h1>BrioCare — therapist console</h1>
   <span class="pill" id="conn">connecting…</span>
 </header>
+
+<div class="sessionbar">
+  <span class="badge" id="b-life">Not started</span>
+  <span class="sb-activity" id="b-activity">—</span>
+  <span class="sb-item">📅 <b id="b-date">—</b></span>
+  <span class="sb-item">🕘 <b id="b-start">—</b></span>
+  <span class="sb-item">⏱ <b id="b-elapsed">0:00</b></span>
+  <span class="sb-item" id="b-cues">cues on</span>
+</div>
+
 <main>
-  <!-- LEFT: video, state, controls -->
-  <div>
-    <div id="video"><div class="vid-off">Connecting video…</div></div>
+  <div class="col">
     <section class="card">
-      <h2>Session state</h2>
-      <div class="kv"><span>Lifecycle</span><b id="s-life">—</b></div>
-      <div class="kv"><span>Activity</span><b id="s-phase">—</b></div>
-      <div class="kv"><span>Current turn</span><b id="s-turn">—</b></div>
-      <div class="kv"><span>Flags</span><span><span class="badge" id="s-paused">running</span>
-        <span class="badge" id="s-muted">unmuted</span></span></div>
-      <table>
-        <thead><tr><th>Participant</th><th>Spoke</th><th>Nudges</th></tr></thead>
-        <tbody id="s-parts"><tr><td colspan="3" class="status">Waiting for kids to join…</td></tr></tbody>
-      </table>
-      <button id="btn-start" disabled style="width:100%;margin-top:8px">Start session</button>
+      <h2>Everyone in the circle</h2>
+      <div id="grid"><div class="vid-off">Connecting video…</div></div>
+    </section>
+    <section class="card">
+      <h2>Engagement</h2>
+      <div class="eng" id="eng"><div class="status">Kids will appear here as they join.</div></div>
+    </section>
+    <section class="card">
+      <h2>Controls</h2>
+      <button id="btn-start" disabled style="width:100%;margin-bottom:9px">Start session</button>
       <div class="controls">
         <button id="btn-mic" class="ghost">🎤 Mic off</button>
         <button class="ghost" data-cmd="advance_phase">Next activity</button>
         <button class="ghost" data-cmd="pause">Pause</button>
         <button class="ghost" data-cmd="resume">Resume</button>
         <button class="ghost" data-cmd="mute_agent">Mute cues</button>
-        <button class="ghost" data-cmd="unmute_agent">Unmute</button>
+        <button class="ghost" data-cmd="unmute_agent">Cues on</button>
         <button class="ghost" id="btn-skip">Skip turn</button>
-        <button class="ghost" id="btn-end">End</button>
+        <button class="warn" id="btn-end">End session</button>
       </div>
       <div class="row">
-        <input id="inject" placeholder="Suggest a prompt to share…" />
+        <input id="inject" placeholder="Share a prompt with the kids…" />
         <button id="btn-inject">Share</button>
       </div>
     </section>
   </div>
 
-  <!-- RIGHT: notes + transcript + cues -->
-  <div class="right">
+  <div class="col">
     <section class="card">
-      <h2>AI session notes <span class="final-tag" id="notes-final" style="display:none">· final summary</span>
-        <button class="ghost" id="btn-copy" style="float:right;padding:3px 8px">Copy</button></h2>
-      <div class="notes" id="notes"><span class="status">Notes will appear as the conversation gets going…</span></div>
+      <h2>Co-pilot cues</h2>
+      <div class="cues" id="cues"><div class="status">Guidance appears here — whose turn, who's quiet, when to wrap.</div></div>
     </section>
-    <div class="feeds">
-      <section class="card">
-        <h2>Live transcript</h2>
-        <div class="scroll" id="transcript"><span class="status">Turn on your mic (and the kid's) to capture the conversation.</span></div>
-      </section>
-      <section class="card">
-        <h2>Co-pilot cues</h2>
-        <div class="scroll"><pre id="log"></pre></div>
-      </section>
-    </div>
+    <section class="card">
+      <h2>Live transcript</h2>
+      <div class="scroll" id="transcript"><div class="status">Turn on mics to capture the conversation.</div></div>
+    </section>
+    <section class="card">
+      <h2>AI session notes <span class="final-tag" id="notes-final" style="display:none">· final</span>
+        <button class="ghost" id="btn-copy" style="float:right;padding:3px 9px;font-size:12px">Copy</button></h2>
+      <div class="notes" id="notes"><span class="status">Notes build as the conversation gets going…</span></div>
+    </section>
   </div>
 </main>
 
@@ -113,10 +146,14 @@
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const room = (params.get("room") || "demo").trim() || "demo";
-let ws, snapshot = {}, callFrame = null, lastNotes = "";
+let ws, call = null, snapshot = {}, lastNotes = "";
+let elapsedBase = 0, elapsedSince = 0;
 
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let rec, micOn = false;
+const KID_COLORS = ["#2f6df0","#1e9e5a","#e8682c","#8b5cf6","#d6336c","#0ea5b7"];
+function colorForPid(pid) { const m = /(\d+)$/.exec(pid || ""); return m ? KID_COLORS[(parseInt(m[1],10)-1) % KID_COLORS.length] : "#226468"; }
+let pidByName = {};
+
+$("bird").innerHTML = `<svg viewBox="0 0 130 120" xmlns="http://www.w3.org/2000/svg"><path d="M46 72 L13 60 L27 88 Z" fill="#f37a8c"/><path d="M60 60 Q30 40 13 52 Q36 56 54 74 Z" fill="#ec7a87"/><ellipse cx="62" cy="69" rx="25" ry="18" fill="#39a79e"/><ellipse cx="57" cy="76" rx="17" ry="10" fill="#57c2b0"/><circle cx="87" cy="50" r="15" fill="#57c2b0"/><path d="M87 35 A15 15 0 0 1 101 46 Q88 48 79 56 A15 15 0 0 1 87 35 Z" fill="#39a79e"/><path d="M101 50 L130 44 L101 55 Z" fill="#226468"/><circle cx="91" cy="47" r="2.8" fill="#1f3b3d"/><path d="M66 60 Q76 24 97 25 Q90 49 72 66 Z" fill="#f1697c"/><circle cx="122" cy="39" r="3.4" fill="#f1697c"/></svg>`;
 
 function connect() {
   const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -125,112 +162,176 @@ function connect() {
   ws.onclose = () => { $("conn").textContent = "disconnected"; };
   ws.onmessage = (e) => handle(JSON.parse(e.data));
 }
-
-function handle(msg) {
-  switch (msg.type) {
-    case "room_info": mountVideo(msg.url); break;
-    case "snapshot": snapshot = msg.state; renderState(msg.state); break;
-    case "actions": for (const l of msg.lines) appendLog(l); break;
-    case "transcript": appendTranscript(msg); break;
-    case "notes": renderNotes(msg.markdown, msg.final); break;
-    case "session_over": appendLog("— session ended —"); break;
-    case "notice": appendLog("(" + msg.text + ")"); break;
+function handle(m) {
+  switch (m.type) {
+    case "room_info": mountVideo(m.url); break;
+    case "snapshot": snapshot = m.state; renderState(m.state); break;
+    case "cues": m.cues.forEach(addCue); break;
+    case "transcript": addTranscript(m); break;
+    case "notes": renderNotes(m.markdown, m.final); break;
+    case "session_over": addCue({ icon:"🏁", text:"Session ended", level:"info" }); break;
+    case "notice": addCue({ icon:"ℹ️", text:m.text, level:"info" }); break;
   }
 }
 
-// --- video ---
+/* ---------- video grid (call-object: every face, always) ---------- */
+const tiles = {};
 function mountVideo(url) {
-  const el = $("video");
-  if (!url) { el.innerHTML = '<div class="vid-off">Video disabled — set DAILY_API_KEY on the server. Transcript, cues & notes still work.</div>'; return; }
-  if (callFrame || !window.DailyIframe) return;
-  el.innerHTML = "";
-  callFrame = window.DailyIframe.createFrame(el, {
-    showLeaveButton: false, showFullscreenButton: false,
-    iframeStyle: { width: "100%", height: "100%", border: "0" },
-  });
-  callFrame.join({ url, userName: "Therapist" }).catch(() => { el.innerHTML = '<div class="vid-off">Could not join the video room.</div>'; });
+  if (!url) { $("grid").innerHTML = '<div class="vid-off">Video is disabled (no DAILY_API_KEY). Transcript, cues & notes still work.</div>'; return; }
+  if (call || !window.DailyIframe) return;
+  $("grid").innerHTML = "";
+  call = window.DailyIframe.createCallObject();
+  ["participant-joined","participant-updated","participant-left","track-started","track-stopped","joined-meeting"].forEach(ev => call.on(ev, renderGrid));
+  call.join({ url, userName: "Therapist" }).catch(() => { $("grid").innerHTML = '<div class="vid-off">Could not join the video.</div>'; });
 }
-
-// --- feeds ---
-function appendLog(line) { const el = $("log"); el.textContent += (el.textContent ? "\n" : "") + line; el.parentElement.scrollTop = el.parentElement.scrollHeight; }
-function appendTranscript(m) {
-  const box = $("transcript");
-  if (box.querySelector(".status")) box.innerHTML = "";
-  const div = document.createElement("div");
-  div.className = "t-line " + (m.role === "kid" ? "kid" : "therapist");
-  div.innerHTML = `<span class="who"></span>: <span class="txt"></span>`;
-  div.querySelector(".who").textContent = m.name;
-  div.querySelector(".txt").textContent = m.text;
-  box.appendChild(div); box.scrollTop = box.scrollHeight;
+function createTile(sid, local) {
+  const el = document.createElement("div"); el.className = "tile"; el.id = "tile-" + sid;
+  const video = document.createElement("video"); video.autoplay = true; video.playsInline = true; video.muted = true;
+  const audio = local ? null : document.createElement("audio"); if (audio) audio.autoplay = true;
+  const nm = document.createElement("div"); nm.className = "nm";
+  const mute = document.createElement("div"); mute.className = "mute"; mute.textContent = "🔇";
+  el.append(video, nm, mute); if (audio) el.append(audio);
+  $("grid").append(el);
+  return { el, video, audio, nm, mute, vtrack:null, atrack:null };
 }
-function renderNotes(markdown, final) {
-  lastNotes = markdown;
-  $("notes").innerHTML = mdLite(markdown);
-  $("notes-final").style.display = final ? "" : "none";
-}
-
-// tiny, safe markdown: escape then apply ##, **bold**, - bullets
-function mdLite(md) {
-  const esc = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
-  const lines = esc(md).split("\n"); let html = "", inUl = false;
-  const close = () => { if (inUl) { html += "</ul>"; inUl = false; } };
-  for (let line of lines) {
-    if (/^##\s+/.test(line)) { close(); html += "<h3>" + line.replace(/^##\s+/, "") + "</h3>"; }
-    else if (/^[-*]\s+/.test(line)) { if (!inUl) { html += "<ul>"; inUl = true; } html += "<li>" + bold(line.replace(/^[-*]\s+/, "")) + "</li>"; }
-    else if (line.trim() === "") { close(); }
-    else { close(); html += "<p>" + bold(line) + "</p>"; }
+function renderGrid() {
+  if (!call) return;
+  const ps = call.participants(); const seen = new Set();
+  for (const key in ps) {
+    const p = ps[key]; const sid = p.local ? "local" : p.session_id; seen.add(sid);
+    let t = tiles[sid]; if (!t) { t = createTile(sid, p.local); tiles[sid] = t; }
+    const nm = p.local ? "Therapist" : (p.user_name || "Guest");
+    const pid = pidByName[nm];
+    t.nm.textContent = nm + (p.local ? " (you)" : "");
+    t.nm.style.background = p.local ? "#226468" : colorForPid(pid);
+    t.mute.style.display = p.audio ? "none" : "block";
+    t.el.classList.toggle("turn", !!pid && pid === snapshot.current_turn);
+    const vt = p.tracks && p.tracks.video && (p.tracks.video.persistentTrack || p.tracks.video.track);
+    if (vt && t.vtrack !== vt.id) { t.video.srcObject = new MediaStream([vt]); t.vtrack = vt.id; }
+    else if (!vt && t.vtrack) { t.video.srcObject = null; t.vtrack = null; }
+    if (t.audio) {
+      const at = p.tracks && p.tracks.audio && (p.tracks.audio.persistentTrack || p.tracks.audio.track);
+      if (at && t.atrack !== at.id) { t.audio.srcObject = new MediaStream([at]); t.atrack = at.id; }
+      else if (!at && t.atrack) { t.audio.srcObject = null; t.atrack = null; }
+    }
   }
-  close(); return html;
-  function bold(s){ return s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>").replace(/^_(.+)_$/, "<em>$1</em>"); }
+  for (const sid in tiles) if (!seen.has(sid)) { tiles[sid].el.remove(); delete tiles[sid]; }
 }
 
+/* ---------- session header + engagement ---------- */
+function fmtAgo(s) { if (s == null) return "—"; if (s < 10) return "just now"; if (s < 60) return Math.round(s) + "s ago"; return Math.round(s/60) + "m ago"; }
 function renderState(st) {
-  $("s-life").textContent = st.lifecycle;
-  $("s-phase").textContent = st.phase_title || st.phase_id || "—";
-  $("s-turn").textContent = st.current_turn_name || "—";
-  const p = $("s-paused"); p.textContent = st.paused ? "paused" : "running"; p.className = "badge" + (st.paused ? " on" : "");
-  const m = $("s-muted"); m.textContent = st.agent_muted ? "cues muted" : "cues on"; m.className = "badge" + (st.agent_muted ? " on" : "");
+  pidByName = {};
+  (st.participants || []).concat(st.lobby || []).forEach(p => { if (p.name) pidByName[p.name] = p.pid; });
 
-  const started = st.lifecycle !== "not_started";
-  const lobby = st.lobby || [];
+  const life = st.lifecycle;
+  const lifeBadge = $("b-life");
+  const label = { not_started:"Not started", in_phase:"In session", between_phases:"In session", intro:"In session", paused:"Paused", closing:"Wrapping up", ended:"Ended" }[life] || life;
+  lifeBadge.textContent = label;
+  lifeBadge.className = "badge " + (life === "paused" ? "paused" : life === "ended" ? "ended" : (life === "not_started" ? "" : "live"));
+  $("b-activity").textContent = st.phase_title ? `${st.phase_title} · ${(st.activity_index ?? 0) + 1} of ${st.activity_total}` : "—";
+  $("b-cues").textContent = st.agent_muted ? "cues muted" : "cues on";
+
+  if (st.started_at) {
+    const d = new Date(st.started_at);
+    $("b-date").textContent = d.toLocaleDateString(undefined, { weekday:"short", month:"short", day:"numeric" });
+    $("b-start").textContent = d.toLocaleTimeString(undefined, { hour:"numeric", minute:"2-digit" });
+  }
+  elapsedBase = st.elapsed_seconds || 0; elapsedSince = Date.now();
+
+  // engagement rows
+  const started = life !== "not_started";
   const startBtn = $("btn-start");
+  const lobby = st.lobby || [];
   startBtn.disabled = started || lobby.length === 0;
   startBtn.textContent = started ? "Session running" : (lobby.length ? `Start session (${lobby.length} joined)` : "Start session");
 
-  const tb = $("s-parts");
+  const eng = $("eng");
   if (!started) {
-    tb.innerHTML = lobby.length
-      ? lobby.map(x => `<tr><td>${x.name}</td><td class="status">in lobby</td><td>—</td></tr>`).join("")
-      : '<tr><td colspan="3" class="status">Waiting for kids to join…</td></tr>';
+    eng.innerHTML = lobby.length ? lobby.map(p =>
+      `<div class="erow"><span class="dot" style="background:${colorForPid(p.pid)}"></span><span class="ename">${p.name}</span><span class="estats">in lobby</span></div>`).join("")
+      : '<div class="status">Kids will appear here as they join.</div>';
     return;
   }
-  tb.innerHTML = st.participants.map(x => {
-    const turn = x.pid === st.current_turn;
-    const style = turn ? ' style="font-weight:700;color:var(--good)"' : "";
-    return `<tr${style}><td>${turn ? "▶ " : ""}${x.name}</td><td>${x.spoke_count}</td><td>${x.invites_received}</td></tr>`;
+  const maxWords = Math.max(1, ...st.participants.map(p => p.words || 0));
+  eng.innerHTML = st.participants.map(p => {
+    const turn = p.pid === st.current_turn;
+    const status = (p.utterances || 0) === 0 ? ["none","Not yet ⚪"] : (p.last_spoke_ago != null && p.last_spoke_ago > 90 ? ["quiet","Quiet 🟡"] : ["active","Active 🟢"]);
+    const share = Math.round(((p.words || 0) / maxWords) * 100);
+    return `<div class="erow ${turn ? "turn" : ""}">
+      <span class="dot" style="background:${colorForPid(p.pid)}"></span>
+      <div>
+        <span class="ename">${turn ? "▶ " : ""}${p.name}</span> <span class="chip ${status[0]}">${status[1]}</span>
+        <div class="meta">${p.utterances || 0} shares · ${p.words || 0} words · ${p.invites_received || 0} nudges · ${fmtAgo(p.last_spoke_ago)}</div>
+        <div class="bar"><i style="width:${share}%;background:${colorForPid(p.pid)}"></i></div>
+      </div>
+      <span class="estats">${p.spoke_count || 0}<br><span class="status">this activity</span></span>
+    </div>`;
   }).join("");
 }
+setInterval(() => {
+  if (!snapshot.started_at) return;
+  const sec = elapsedBase + (Date.now() - elapsedSince) / 1000;
+  const live = snapshot.lifecycle && snapshot.lifecycle !== "ended" && !snapshot.paused;
+  if (live) { const s = Math.floor(sec); $("b-elapsed").textContent = Math.floor(s/60) + ":" + String(s % 60).padStart(2,"0"); }
+}, 1000);
 
-// --- controls ---
+/* ---------- cues + transcript + notes ---------- */
+function addCue(c) {
+  const box = $("cues"); if (box.querySelector(".status")) box.innerHTML = "";
+  const el = document.createElement("div"); el.className = "cue " + (c.level || "info");
+  el.innerHTML = `<span class="ic"></span><span class="tx"></span>`;
+  el.querySelector(".ic").textContent = c.icon || "•"; el.querySelector(".tx").textContent = c.text;
+  box.prepend(el); while (box.children.length > 40) box.lastChild.remove();
+}
+function addTranscript(m) {
+  const box = $("transcript"); if (box.querySelector(".status")) box.innerHTML = "";
+  const div = document.createElement("div"); div.className = "t-line";
+  const color = m.role === "kid" ? colorForPid(m.pid) : "#226468";
+  div.innerHTML = `<span class="who"></span>: <span class="txt"></span>`;
+  const who = div.querySelector(".who"); who.textContent = m.name; who.style.color = color;
+  div.querySelector(".txt").textContent = m.text;
+  box.append(div); box.scrollTop = box.scrollHeight;
+}
+function renderNotes(md, final) { lastNotes = md; $("notes").innerHTML = mdLite(md); $("notes-final").style.display = final ? "" : "none"; }
+function mdLite(md) {
+  const esc = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  const lines = esc(md).split("\n"); let html = "", ul = false;
+  const close = () => { if (ul) { html += "</ul>"; ul = false; } };
+  const bold = (s) => s.replace(/\*\*(.+?)\*\*/g,"<strong>$1</strong>").replace(/^_(.+)_$/,"<em>$1</em>");
+  for (const line of lines) {
+    if (/^##\s+/.test(line)) { close(); html += "<h3>" + line.replace(/^##\s+/,"") + "</h3>"; }
+    else if (/^[-*]\s+/.test(line)) { if (!ul) { html += "<ul>"; ul = true; } html += "<li>" + bold(line.replace(/^[-*]\s+/,"")) + "</li>"; }
+    else if (line.trim() === "") close();
+    else { close(); html += "<p>" + bold(line) + "</p>"; }
+  }
+  close(); return html;
+}
+
+/* ---------- controls ---------- */
 function send(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
-function override(command, args = {}) { send({ type: "override", command, args }); }
-$("btn-start").onclick = () => send({ type: "start" });
-$("btn-end").onclick = () => send({ type: "end" });
+function override(command, args = {}) { send({ type:"override", command, args }); }
+$("btn-start").onclick = () => send({ type:"start" });
+$("btn-end").onclick = () => send({ type:"end" });
 $("btn-skip").onclick = () => { if (snapshot.current_turn) override("skip_participant", { pid: snapshot.current_turn }); };
-$("btn-inject").onclick = () => { const t = $("inject").value.trim(); if (t) { override("inject_prompt", { text: t }); $("inject").value = ""; } };
+$("btn-inject").onclick = () => { const t = $("inject").value.trim(); if (t) { override("inject_prompt", { text:t }); $("inject").value = ""; } };
 $("btn-copy").onclick = () => { if (lastNotes) navigator.clipboard.writeText(lastNotes); };
 document.querySelectorAll("button[data-cmd]").forEach(b => b.onclick = () => override(b.dataset.cmd));
 
-// --- therapist mic (transcribes the therapist's own side) ---
-function startMic() {
-  if (!SR || micOn) { if (!SR) appendLog("(this browser has no speech recognition — use Chrome to capture your side)"); return; }
-  rec = new SR(); rec.lang = "en-US"; rec.continuous = true; rec.interimResults = false;
-  rec.onresult = (ev) => { for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) { const t = ev.results[i][0].transcript.trim(); if (t) send({ type: "spoke", text: t }); } };
-  rec.onend = () => { if (micOn) { try { rec.start(); } catch (e) {} } };
-  try { rec.start(); micOn = true; $("btn-mic").textContent = "🎤 Mic on"; $("btn-mic").classList.add("on"); } catch (e) {}
-}
-function stopMic() { micOn = false; if (rec) { try { rec.stop(); } catch (e) {} } $("btn-mic").textContent = "🎤 Mic off"; $("btn-mic").classList.remove("on"); }
-$("btn-mic").onclick = () => micOn ? stopMic() : startMic();
+/* therapist mic: controls the call audio + transcription together */
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let rec, micOn = false;
+function startSR() { if (!SR || rec) return; rec = new SR(); rec.lang="en-US"; rec.continuous=true; rec.interimResults=false;
+  rec.onresult = (ev)=>{ for (let i=ev.resultIndex;i<ev.results.length;i++) if (ev.results[i].isFinal){ const t=ev.results[i][0].transcript.trim(); if (t) send({type:"spoke",text:t}); } };
+  rec.onend = ()=>{ if (micOn && rec){ try{ rec.start(); }catch(e){} } }; try{ rec.start(); }catch(e){} }
+function stopSR() { const r = rec; rec = null; if (r){ try{ r.stop(); }catch(e){} } }
+$("btn-mic").onclick = () => {
+  micOn = !micOn;
+  if (call) { try { call.setLocalAudio(micOn); } catch (e) {} }
+  if (micOn) startSR(); else stopSR();
+  $("btn-mic").textContent = micOn ? "🎤 Mic on" : "🎤 Mic off";
+  $("btn-mic").className = micOn ? "on" : "ghost";
+};
 
 connect();
 </script>

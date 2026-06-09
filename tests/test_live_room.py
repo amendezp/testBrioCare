@@ -20,6 +20,7 @@ from server.notes import NoteTaker
 from server.phraser import Phraser
 from server.room import SessionRoom
 
+from briocare.runtime.actions import InviteParticipant, InviteReason, NoOp
 from briocare.runtime.events import StartSession
 from briocare.scripts.loader import load_script
 from briocare.sim.harness import SimulationHarness
@@ -258,6 +259,57 @@ def test_silent_run_matches_harness(monkeypatch) -> None:
         [StartSession(at=0.0, roster={"kid1": "Maya", "kid2": "Leo"})]
     )
     assert _action_kinds(ther) == sink.kinds
+
+
+def test_snapshot_header_after_start(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> _FakeWS:
+        room = _make_room("h1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        return ther
+
+    snap = _last_snapshot(asyncio.run(scenario()))
+    assert snap["started_at"] is not None
+    assert snap["activity_total"] == 3
+    assert snap["activity_index"] == 0
+
+
+def test_engagement_counts_kid_words(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> _FakeWS:
+        room = _make_room("h2")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, _spoke("I feel happy today"))
+        _cancel(room)
+        return ther
+
+    snap = _last_snapshot(asyncio.run(scenario()))
+    kid1 = next(p for p in snap["participants"] if p["pid"] == "kid1")
+    assert kid1["utterances"] == 1
+    assert kid1["words"] == 4
+    assert kid1["last_spoke_ago"] is not None
+
+
+def test_friendly_cues_filter_noise(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+    room = _make_room("c1")
+    nudge = InviteParticipant(
+        at=0.0, participant_id="kid1", text="x", reason=InviteReason.QUIET_NUDGE, attempt=1, max_attempts=2
+    )
+    actions = [NoOp(at=0.0, reason="paused"), nudge]
+    cues = room._friendly_cues(actions, {"kid1": "Maya"})
+    assert len(cues) == 1  # NoOp dropped
+    assert cues[0]["level"] == "action" and "Maya" in cues[0]["text"]
 
 
 def test_kid_cannot_start(monkeypatch) -> None:
