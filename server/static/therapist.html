@@ -55,6 +55,10 @@
   .estats { text-align:right; font-size:12px; color:var(--mut); white-space:nowrap; }
   .bar { height:6px; border-radius:6px; background:#edf3f1; margin-top:5px; overflow:hidden; }
   .bar > i { display:block; height:100%; border-radius:6px; }
+  .erow .trend { font-size:12px; color:var(--teal-deep); margin-top:2px; }
+  .erow .trend.drop { color:var(--coral); font-weight:800; }
+  button.nudge { background:#fff; color:var(--teal-deep); border:1.5px solid var(--line); border-radius:8px;
+                 padding:3px 8px; font-size:11px; font-weight:700; margin-top:6px; }
 
   /* controls */
   .controls { display:flex; flex-wrap:wrap; gap:7px; }
@@ -139,6 +143,11 @@
         <button class="ghost" id="btn-copy" style="float:right;padding:3px 9px;font-size:12px">Copy</button></h2>
       <div class="notes" id="notes"><span class="status">Notes build as the conversation gets going…</span></div>
     </section>
+    <section class="card">
+      <h2>Parent summary <span class="final-tag" id="ps-tag" style="display:none">· ready</span>
+        <button class="ghost" id="btn-copy-ps" style="float:right;padding:3px 9px;font-size:12px">Copy</button></h2>
+      <div class="notes" id="parent-summary"><span class="status">A warm recap for the parent appears when the session ends.</span></div>
+    </section>
   </div>
 </main>
 
@@ -151,7 +160,10 @@ let elapsedBase = 0, elapsedSince = 0;
 
 const KID_COLORS = ["#2f6df0","#1e9e5a","#e8682c","#8b5cf6","#d6336c","#0ea5b7"];
 function colorForPid(pid) { const m = /(\d+)$/.exec(pid || ""); return m ? KID_COLORS[(parseInt(m[1],10)-1) % KID_COLORS.length] : "#226468"; }
-let pidByName = {};
+function esc(s) { return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+const RATING_FACES = ["","😣","😟","😐","🙂","😄"];  // index by 1..5
+function faceFor(v) { return (v >= 1 && v < RATING_FACES.length) ? RATING_FACES[v] : "·"; }
+let pidByName = {}, lastParent = "";
 
 $("bird").innerHTML = `<svg viewBox="0 0 130 120" xmlns="http://www.w3.org/2000/svg"><path d="M46 72 L13 60 L27 88 Z" fill="#f37a8c"/><path d="M60 60 Q30 40 13 52 Q36 56 54 74 Z" fill="#ec7a87"/><ellipse cx="62" cy="69" rx="25" ry="18" fill="#39a79e"/><ellipse cx="57" cy="76" rx="17" ry="10" fill="#57c2b0"/><circle cx="87" cy="50" r="15" fill="#57c2b0"/><path d="M87 35 A15 15 0 0 1 101 46 Q88 48 79 56 A15 15 0 0 1 87 35 Z" fill="#39a79e"/><path d="M101 50 L130 44 L101 55 Z" fill="#226468"/><circle cx="91" cy="47" r="2.8" fill="#1f3b3d"/><path d="M66 60 Q76 24 97 25 Q90 49 72 66 Z" fill="#f1697c"/><circle cx="122" cy="39" r="3.4" fill="#f1697c"/></svg>`;
 
@@ -169,6 +181,7 @@ function handle(m) {
     case "cues": m.cues.forEach(addCue); break;
     case "transcript": addTranscript(m); break;
     case "notes": renderNotes(m.markdown, m.final); break;
+    case "parent_summary": renderParentSummary(m.markdown); break;
     case "session_over": addCue({ icon:"🏁", text:"Session ended", level:"info" }); break;
     case "notice": addCue({ icon:"ℹ️", text:m.text, level:"info" }); break;
   }
@@ -249,7 +262,7 @@ function renderState(st) {
   const eng = $("eng");
   if (!started) {
     eng.innerHTML = lobby.length ? lobby.map(p =>
-      `<div class="erow"><span class="dot" style="background:${colorForPid(p.pid)}"></span><span class="ename">${p.name}</span><span class="estats">in lobby</span></div>`).join("")
+      `<div class="erow"><span class="dot" style="background:${colorForPid(p.pid)}"></span><span class="ename">${esc(p.name)}</span><span class="estats">in lobby</span></div>`).join("")
       : '<div class="status">Kids will appear here as they join.</div>';
     return;
   }
@@ -258,16 +271,25 @@ function renderState(st) {
     const turn = p.pid === st.current_turn;
     const status = (p.utterances || 0) === 0 ? ["none","Not yet ⚪"] : (p.last_spoke_ago != null && p.last_spoke_ago > 90 ? ["quiet","Quiet 🟡"] : ["active","Active 🟢"]);
     const share = Math.round(((p.words || 0) / maxWords) * 100);
+    const ci = p.rating_checkin, co = p.rating_checkout;
+    let trend = "";
+    if (ci != null) {
+      const drop = (co != null && (ci - co) >= 2);
+      const tail = co != null ? ` → ${faceFor(co)}` : "";
+      trend = `<div class="meta trend${drop ? " drop" : ""}">${drop ? "📉" : "🌡️"} check-in ${faceFor(ci)}${tail}${drop ? " · mood dropped" : ""}</div>`;
+    }
     return `<div class="erow ${turn ? "turn" : ""}">
       <span class="dot" style="background:${colorForPid(p.pid)}"></span>
       <div>
-        <span class="ename">${turn ? "▶ " : ""}${p.name}</span> <span class="chip ${status[0]}">${status[1]}</span>
-        <div class="meta">${p.utterances || 0} shares · ${p.words || 0} words · ${p.invites_received || 0} nudges · ${fmtAgo(p.last_spoke_ago)}</div>
+        <span class="ename">${turn ? "▶ " : ""}${esc(p.name)}</span> <span class="chip ${status[0]}">${status[1]}</span>
+        <div class="meta">${p.utterances || 0} shares · ${p.words || 0} words · 🤝 ${p.spontaneous || 0} spontaneous · ${p.invites_received || 0} nudges · ${fmtAgo(p.last_spoke_ago)}</div>
+        ${trend}
         <div class="bar"><i style="width:${share}%;background:${colorForPid(p.pid)}"></i></div>
       </div>
-      <span class="estats">${p.spoke_count || 0}<br><span class="status">this activity</span></span>
+      <span class="estats">${p.spoke_count || 0}<br><span class="status">this activity</span><br><button class="nudge" data-pid="${esc(p.pid)}">💬 Nudge</button></span>
     </div>`;
   }).join("");
+  eng.querySelectorAll(".nudge").forEach(b => b.onclick = () => send({ type: "private_nudge", pid: b.dataset.pid }));
 }
 setInterval(() => {
   if (!snapshot.started_at) return;
@@ -294,6 +316,7 @@ function addTranscript(m) {
   box.append(div); box.scrollTop = box.scrollHeight;
 }
 function renderNotes(md, final) { lastNotes = md; $("notes").innerHTML = mdLite(md); $("notes-final").style.display = final ? "" : "none"; }
+function renderParentSummary(md) { lastParent = md; $("parent-summary").innerHTML = mdLite(md); $("ps-tag").style.display = ""; }
 function mdLite(md) {
   const esc = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const lines = esc(md).split("\n"); let html = "", ul = false;
@@ -316,6 +339,7 @@ $("btn-end").onclick = () => send({ type:"end" });
 $("btn-skip").onclick = () => { if (snapshot.current_turn) override("skip_participant", { pid: snapshot.current_turn }); };
 $("btn-inject").onclick = () => { const t = $("inject").value.trim(); if (t) { override("inject_prompt", { text:t }); $("inject").value = ""; } };
 $("btn-copy").onclick = () => { if (lastNotes) navigator.clipboard.writeText(lastNotes); };
+$("btn-copy-ps").onclick = () => { if (lastParent) navigator.clipboard.writeText(lastParent); };
 document.querySelectorAll("button[data-cmd]").forEach(b => b.onclick = () => override(b.dataset.cmd));
 
 /* therapist mic: controls the call audio + transcription together */

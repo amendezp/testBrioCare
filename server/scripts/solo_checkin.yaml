@@ -19,6 +19,29 @@ closing_prompt:
     and let's get ready for what's next. Great job.
 
 phases:
+  - id: feelings_checkin
+    title: How are you feeling?
+    mode: rating
+    rating_scale: 5
+    opening_prompt:
+      text: >
+        Before we start, tap the face that shows how you're feeling right now.
+        There are no wrong answers.
+    transition_prompt:
+      text: Thanks for checking in. Let's keep going.
+    turn_policy:
+      order: open
+    participation:
+      require_all_speak: false
+      quiet_participant_strategy: skip
+    pacing:
+      min_phase_seconds: 0
+      max_phase_seconds: 60
+      advance_when: timer
+    facilitator_notes: >
+      A quick feelings check-in. The child taps a face from 1 (low) to 5 (great);
+      the activity advances as soon as they tap, or when the timer runs out.
+
   - id: checkin
     title: How are you feeling?
     opening_prompt:
@@ -76,3 +99,25 @@ phases:
     facilitator_notes: >
       Optional open reflection with a young child. Encouraging and brief. Never
       push if they have nothing to add; a short, kind acknowledgement is enough.
+
+  - id: feelings_checkout
+    title: One last check-in
+    mode: rating
+    rating_scale: 5
+    opening_prompt:
+      text: >
+        One last tap before we finish — how are you feeling now? Pick the face that fits.
+    transition_prompt:
+      text: Thank you for telling me how you feel.
+    turn_policy:
+      order: open
+    participation:
+      require_all_speak: false
+      quiet_participant_strategy: skip
+    pacing:
+      min_phase_seconds: 0
+      max_phase_seconds: 60
+      advance_when: timer
+    facilitator_notes: >
+      A closing feelings check-in that mirrors the opening one, so the therapist can
+      see how the child's mood shifted across the session.

@@ -43,6 +43,14 @@ class ParticipantSpoke(_Event):
     duration: float | None = None
 
 
+class ParticipantRated(_Event):
+    """A child submitted a feelings-thermometer value during a ``rating`` phase."""
+
+    kind: Literal["participant_rated"] = "participant_rated"
+    participant_id: str
+    value: int
+
+
 class SilenceTimeout(_Event):
     kind: Literal["silence_timeout"] = "silence_timeout"
 
@@ -62,6 +70,12 @@ class EndSessionRequest(_Event):
 
 
 InputEvent = Annotated[
-    StartSession | ParticipantSpoke | SilenceTimeout | Tick | ClinicianOverride | EndSessionRequest,
+    StartSession
+    | ParticipantSpoke
+    | ParticipantRated
+    | SilenceTimeout
+    | Tick
+    | ClinicianOverride
+    | EndSessionRequest,
     Field(discriminator="kind"),
 ]

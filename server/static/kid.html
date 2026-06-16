@@ -70,6 +70,31 @@
   #mic-label { font-size:21px; font-weight:800; }
   #mic-label.muted { color:var(--coral); } #mic-label.live { color:var(--teal-deep); }
   #mic-sub { font-size:15px; color:var(--mut); min-height:20px; }
+
+  /* quick-reply chips — a non-voice way to join in */
+  #quick-replies { display:none; flex-wrap:wrap; gap:10px; justify-content:center; max-width:640px; }
+  #quick-replies.show { display:flex; }
+  #qr-label { width:100%; font-size:15px; color:var(--mut); margin-bottom:2px; }
+  .qchip { background:#fff; border:2px solid #e6f3f0; border-radius:18px; padding:12px 18px; font-size:18px;
+           font-weight:700; color:var(--teal-deep); box-shadow:0 6px 16px rgba(34,100,104,.08); transition:transform .08s; }
+  .qchip:active { transform:scale(.95); }
+
+  /* feelings thermometer — check-in / check-out */
+  #feelings { display:none; flex-direction:column; align-items:center; gap:16px; width:100%; max-width:640px;
+              background:#fff; border:2px solid #eef6f4; border-radius:24px; padding:24px 20px;
+              box-shadow:0 12px 30px rgba(34,100,104,.12); }
+  #feelings.show { display:flex; }
+  #feelings-q { font-size:22px; font-weight:800; color:var(--teal-deep); }
+  #feelings-row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
+  .feel { width:74px; height:74px; border-radius:50%; border:2px solid #eef6f4; background:#fbfdfc; font-size:36px;
+          display:flex; align-items:center; justify-content:center; transition:transform .08s, border-color .15s; }
+  .feel:active { transform:scale(.9); border-color:var(--teal-light); }
+  #feelings-thanks { display:none; font-size:21px; font-weight:800; color:var(--teal); }
+
+  /* private encouragement — soft, "just for you" */
+  #private-bubble { display:none; max-width:640px; width:100%; background:var(--coral-soft); border:2px solid #f6d6db;
+                    border-radius:20px; padding:14px 18px; font-size:19px; font-weight:700; color:#b23a4d; }
+  #private-bubble.show { display:block; }
 </style>
 </head>
 <body>
@@ -84,13 +109,20 @@
 
   <!-- SESSION -->
   <div class="topline"><div class="bird-sm" id="bird-sm"></div><div id="banner">Connecting…</div></div>
+  <div id="private-bubble"></div>
   <div id="bubble"></div>
+  <div id="feelings">
+    <div id="feelings-q">How are you feeling?</div>
+    <div id="feelings-row"></div>
+    <div id="feelings-thanks">Thanks for sharing! 🌟</div>
+  </div>
   <div id="video"><div class="vid-off">Connecting video…</div></div>
   <div id="mic-wrap">
     <button id="mic" class="muted" disabled aria-label="microphone"></button>
     <div id="mic-label" class="muted">Tap to talk</div>
     <div id="mic-sub">When this is green, everyone can hear you.</div>
   </div>
+  <div id="quick-replies"><div id="qr-label">…or tap how you feel:</div></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -118,6 +150,48 @@ const MIC_ON = `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width=
 const MIC_OFF = `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 2l20 20"/><path d="M9 9v3a3 3 0 0 0 5.1 2.1"/><path d="M15 9.3V5a3 3 0 0 0-5.9-.7"/><path d="M19 10v2a7 7 0 0 1-.9 3.4"/><path d="M5 10v2a7 7 0 0 0 10.5 6"/><path d="M12 19v3"/></svg>`;
 
 let ws, rec, started = false, callFrame = null, myPid = null, myName = "Guest", live = false, myTurn = false;
+let phaseMode = null, rated = false;
+
+// non-voice reply chips + feelings thermometer faces (1..5)
+const QUICK = [["😀","good"],["😟","nervous"],["😢","sad"],["😡","mad"],["😴","tired"],["🤔","not sure"]];
+const FEELING_FACES = ["😣","😟","😐","🙂","😄"];
+function wsSend(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); }
+
+(function buildChips() {
+  const box = $("quick-replies");
+  QUICK.forEach(([emoji, word]) => {
+    const b = document.createElement("button");
+    b.className = "qchip"; b.type = "button"; b.textContent = `${emoji} ${word}`;
+    b.onclick = () => wsSend({ type: "quick_reply", text: `${emoji} ${word}` });
+    box.append(b);
+  });
+})();
+
+function showFeelings(scale, prompt) {
+  rated = false;
+  const n = Math.max(2, Math.min(FEELING_FACES.length, scale || 5));
+  $("feelings-q").textContent = prompt || "How are you feeling?";
+  $("feelings-q").style.display = "";
+  $("feelings-thanks").style.display = "none";
+  const row = $("feelings-row"); row.innerHTML = "";
+  for (let i = 0; i < n; i++) {
+    const v = i + 1;
+    const b = document.createElement("button");
+    b.className = "feel"; b.type = "button"; b.textContent = FEELING_FACES[i] || "🙂";
+    b.setAttribute("aria-label", "feeling " + v); b.onclick = () => submitRating(v);
+    row.append(b);
+  }
+  $("feelings").classList.add("show");
+  $("quick-replies").classList.remove("show");
+}
+function submitRating(v) {
+  if (rated) return; rated = true;
+  wsSend({ type: "rating", value: v });
+  $("feelings-row").innerHTML = "";
+  $("feelings-q").style.display = "none";
+  $("feelings-thanks").style.display = "";
+}
+function hideFeelings() { $("feelings").classList.remove("show"); }
 
 // --- join gate ---
 function join() {
@@ -142,18 +216,25 @@ function handle(msg) {
   if (msg.type === "room_info") mountVideo(msg.url);
   else if (msg.type === "identity") myPid = msg.pid;
   else if (msg.type === "assistant") { $("bubble").textContent = msg.text; $("bubble").classList.add("show"); }
+  else if (msg.type === "request_rating") showFeelings(msg.scale, msg.prompt);
+  else if (msg.type === "private_prompt") { $("private-bubble").textContent = msg.text; $("private-bubble").classList.add("show"); }
   else if (msg.type === "snapshot") applySnapshot(msg.state);
-  else if (msg.type === "session_over") { started = false; setLive(false); $("banner").className = ""; $("banner").textContent = "All done — great job! 🌟"; $("mic").disabled = true; }
+  else if (msg.type === "session_over") { started = false; setLive(false); hideFeelings(); $("quick-replies").classList.remove("show"); $("banner").className = ""; $("banner").textContent = "All done — great job! 🌟"; $("mic").disabled = true; }
   else if (msg.type === "notice") $("mic-sub").textContent = msg.text;
 }
 
 function applySnapshot(st) {
   started = st.lifecycle !== "not_started" && st.lifecycle !== "ended";
   myTurn = !!(st.current_turn && st.current_turn === myPid);
+  phaseMode = st.phase_mode || null;
   $("mic").disabled = !started;
   if (!started) { $("banner").className = ""; $("banner").textContent = "Getting ready… 🌱"; }
+  else if (phaseMode === "rating") { $("banner").className = ""; $("banner").textContent = "How are you feeling? 🌡️"; }
   else if (myTurn) { $("banner").className = "turn"; $("banner").textContent = "It's your turn! ✨"; }
   else { $("banner").className = ""; $("banner").textContent = st.current_turn_name ? `${st.current_turn_name}'s turn` : "We're listening together"; }
+  // The non-voice chips are available during a talking activity; the thermometer owns the rating phase.
+  $("quick-replies").classList.toggle("show", started && phaseMode !== "rating");
+  if (phaseMode !== "rating") hideFeelings();
   paintMic();
 }
 

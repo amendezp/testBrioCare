@@ -11,6 +11,7 @@ from briocare.runtime.events import (
     ClinicianOverride,
     EndSessionRequest,
     OverrideCommand,
+    ParticipantRated,
     ParticipantSpoke,
     SilenceTimeout,
     StartSession,
@@ -48,10 +49,14 @@ def make_phase(
     max_invites_per_participant: int = 2,
     quiet_strategy: QuietStrategy = QuietStrategy.DIRECT_INVITE,
     transition: str | None = "Next.",
+    mode: str = "conversation",
+    rating_scale: int = 5,
 ) -> Phase:
     return Phase(
         id=phase_id,
         title=phase_id.title(),
+        mode=mode,
+        rating_scale=rating_scale,
         opening_prompt=Prompt(text=f"Opening {phase_id}"),
         transition_prompt=Prompt(text=transition) if transition else None,
         acknowledge_speakers=acknowledge,
@@ -101,6 +106,9 @@ class Driver:
 
     def speak(self, pid: str, text: str, at: float) -> list[FacilitatorAction]:
         return self.m.step(ParticipantSpoke(at=at, participant_id=pid, text=text))
+
+    def rate(self, pid: str, value: int, at: float) -> list[FacilitatorAction]:
+        return self.m.step(ParticipantRated(at=at, participant_id=pid, value=value))
 
     def tick(self, at: float) -> list[FacilitatorAction]:
         return self.m.step(Tick(at=at))

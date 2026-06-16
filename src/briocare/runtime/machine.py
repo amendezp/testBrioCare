@@ -18,7 +18,9 @@ from briocare.runtime.actions import (
     InviteReason,
     NoOp,
     PromptSource,
+    RequestRating,
     SayPrompt,
+    SuggestEcho,
     WrapUpPhase,
     order_actions,
 )
@@ -28,6 +30,7 @@ from briocare.runtime.events import (
     EndSessionRequest,
     InputEvent,
     OverrideCommand,
+    ParticipantRated,
     ParticipantSpoke,
     SilenceTimeout,
     StartSession,
@@ -35,9 +38,11 @@ from briocare.runtime.events import (
 )
 from briocare.runtime.policies import (
     all_participants_done,
+    all_participants_rated,
     next_turn,
     phase_complete,
     quiet_candidates,
+    rank_by_need,
     should_warn_wrapup,
 )
 from briocare.runtime.state import Lifecycle, ParticipantPhaseState, PhaseRuntimeState, SessionState
@@ -118,6 +123,8 @@ class SessionMachine:
             return self._on_start(event, now)
         if isinstance(event, ParticipantSpoke):
             return self._on_spoke(event, now)
+        if isinstance(event, ParticipantRated):
+            return self._on_rated(event, now)
         if isinstance(event, (Tick, SilenceTimeout)):
             return self._on_tick(now)
         if isinstance(event, ClinicianOverride):
@@ -150,17 +157,27 @@ class SessionMachine:
         pps = st.ps(pid)
         is_pass = phase.turn_policy.allow_pass and event.text.strip().lower() in self.pass_tokens
         self.state.last_any_speech_at = now
+        was_current = st.current_turn == pid
         actions: list[FacilitatorAction] = []
         if is_pass:
             pps.passed = True
         else:
             pps.spoke_count += 1
             pps.last_spoke_at = now
+            self.state.contributions[pid] = self.state.contributions.get(pid, 0) + 1
+            # A share is "spontaneous" when it isn't a facilitator-assigned managed turn —
+            # an open/popcorn share, or speaking up out of turn. Rising spontaneity marks the
+            # radial->peer shift that signals group-therapy progress (Arias-Pujol & Anguera, 2017).
+            if phase.turn_policy.order not in _MANAGED_TURN_ORDERS or not was_current:
+                self.state.spontaneous[pid] = self.state.spontaneous.get(pid, 0) + 1
+            # Echo cue: a previously-nudged child finally spoke — suggest the therapist echo them.
+            if pps.invites_received > 0 and not pps.echoed:
+                pps.echoed = True
+                actions.append(SuggestEcho(at=now, participant_id=pid, text=event.text))
             if phase.acknowledge_speakers:
                 name = self.state.roster[pid]
                 actions.append(AcknowledgeSpeaker(at=now, participant_id=pid, text=f"Thank you, {name}."))
 
-        was_current = st.current_turn == pid
         if phase_complete(phase, st, self.roster_order, now):
             actions.extend(self._complete_phase(now))
             return actions
@@ -168,6 +185,25 @@ class SessionMachine:
             self._advance_turn(st, phase, now)
             if st.current_turn is not None:
                 actions.append(self._invite(st.current_turn, InviteReason.ROUND_ROBIN_TURN, now))
+        return actions
+
+    def _on_rated(self, event: ParticipantRated, now: float) -> list[FacilitatorAction]:
+        st = self.state.phase
+        if self.state.lifecycle != Lifecycle.IN_PHASE or st is None:
+            return [NoOp(at=now, reason="no active phase")]
+        phase = self._current_phase()
+        if phase.mode != "rating":
+            return [NoOp(at=now, reason="not a rating phase")]
+        pid = event.participant_id
+        if pid not in self.state.roster:
+            return [NoOp(at=now, reason=f"unknown participant {pid!r}")]
+        pps = st.ps(pid)
+        pps.rating = event.value
+        self.state.ratings.setdefault(phase.id, {})[pid] = event.value
+        self.state.last_any_speech_at = now
+        actions: list[FacilitatorAction] = []
+        if all_participants_rated(st, self.roster_order):
+            actions.extend(self._complete_phase(now))  # everyone tapped — advance early
         return actions
 
     def _on_tick(self, now: float) -> list[FacilitatorAction]:
@@ -205,10 +241,10 @@ class SessionMachine:
             )
             return actions
 
-        # 4. quiet nudge
+        # 4. quiet nudge — surface the most-inhibited eligible child first (need-weighted)
         cands = quiet_candidates(phase, st, self.roster_order, now, self._idle_since(st))
         if cands:
-            target = cands[0]
+            target = rank_by_need(cands, self.state.contributions, st, self.roster_order)[0]
             tps = st.ps(target)
             tps.invites_received += 1
             st.last_nudge_at = now
@@ -292,6 +328,9 @@ class SessionMachine:
             per_participant={pid: ParticipantPhaseState() for pid in self.roster_order},
         )
         self.state.phase = st
+        if phase.mode == "rating":
+            # No managed speaking turns — each child taps a feelings-thermometer value.
+            return [RequestRating(at=now, scale=phase.rating_scale, prompt_text=phase.opening_prompt.text)]
         actions: list[FacilitatorAction] = [
             SayPrompt(at=now, source=PromptSource.PHASE_OPENING, text=phase.opening_prompt.text, phase_id=phase.id)
         ]

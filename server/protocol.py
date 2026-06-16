@@ -41,6 +41,27 @@ class SpokeMsg(_ClientMsg):
     text: str
 
 
+class QuickReplyMsg(_ClientMsg):
+    """A kid taps a feeling chip instead of speaking; auto-relayed to the group."""
+
+    type: Literal["quick_reply"] = "quick_reply"
+    text: str
+
+
+class RatingMsg(_ClientMsg):
+    """A kid submits a feelings-thermometer value during a rating phase."""
+
+    type: Literal["rating"] = "rating"
+    value: int
+
+
+class PrivateNudgeMsg(_ClientMsg):
+    """Therapist asks the co-pilot to send one child private encouragement."""
+
+    type: Literal["private_nudge"] = "private_nudge"
+    pid: str
+
+
 class OverrideMsg(_ClientMsg):
     type: Literal["override"] = "override"
     command: OverrideCommand
@@ -52,7 +73,7 @@ class EndMsg(_ClientMsg):
 
 
 ClientMessage = Annotated[
-    JoinMsg | StartMsg | SpokeMsg | OverrideMsg | EndMsg,
+    JoinMsg | StartMsg | SpokeMsg | QuickReplyMsg | RatingMsg | PrivateNudgeMsg | OverrideMsg | EndMsg,
     Field(discriminator="type"),
 ]
 
@@ -119,6 +140,21 @@ def actions_msg(actions_json: list[dict], lines: list[str]) -> dict:
 def assistant_msg(text: str) -> dict:
     """A friendly, kid-appropriate prompt shared with both roles."""
     return {"type": "assistant", "text": text}
+
+
+def private_prompt_msg(text: str) -> dict:
+    """Gentle, one-directional encouragement shown only on one child's screen."""
+    return {"type": "private_prompt", "text": text}
+
+
+def request_rating_msg(*, scale: int, prompt: str) -> dict:
+    """Ask the kids to tap a feelings-thermometer value (rating phase)."""
+    return {"type": "request_rating", "scale": scale, "prompt": prompt}
+
+
+def parent_summary_msg(markdown: str) -> dict:
+    """A warm, parent-facing recap of the session (therapist-facing card)."""
+    return {"type": "parent_summary", "markdown": markdown}
 
 
 def notes_msg(markdown: str, *, final: bool = False) -> dict:

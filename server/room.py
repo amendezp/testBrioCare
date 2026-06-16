@@ -26,11 +26,14 @@ from briocare.runtime.actions import (
     InviteParticipant,
     InviteReason,
     PromptSource,
+    RequestRating,
     SayPrompt,
+    SuggestEcho,
 )
 from briocare.runtime.clock import WallClock
 from briocare.runtime.events import (
     InputEvent,
+    ParticipantRated,
     ParticipantSpoke,
     SilenceTimeout,
     StartSession,
@@ -39,7 +42,7 @@ from briocare.runtime.events import (
 from briocare.runtime.machine import SessionMachine
 from briocare.runtime.state import Lifecycle
 from briocare.scripts.schema import ExerciseScript
-from server import protocol
+from server import dump, protocol
 from server.daily import Daily
 from server.notes import NoteTaker
 from server.phraser import Phraser
@@ -87,6 +90,8 @@ class SessionRoom:
         self.transcript: list[dict[str, Any]] = []
         self._utts_since_notes = 0
         self._notes_task: asyncio.Task[None] | None = None
+        self.last_notes = ""
+        self.last_parent_summary = ""
 
         self.room_url: str | None = None
         self._room_fetched = False
@@ -157,6 +162,15 @@ class SessionRoom:
         if isinstance(msg, protocol.SpokeMsg):
             await self._on_spoke(role, ws, msg.text)
             return
+        if isinstance(msg, protocol.QuickReplyMsg):
+            await self._on_quick_reply(ws, msg.text)
+            return
+        if isinstance(msg, protocol.RatingMsg):
+            await self._on_rating(ws, msg.value)
+            return
+        if isinstance(msg, protocol.PrivateNudgeMsg):
+            await self._on_private_nudge(msg.pid)
+            return
         if isinstance(msg, protocol.StartMsg):
             await self._on_start()
             return
@@ -165,8 +179,14 @@ class SessionRoom:
     @staticmethod
     def _role_allows(role: str, msg: protocol.ClientMessage) -> bool:
         if role == protocol.KID:
-            return isinstance(msg, (protocol.JoinMsg, protocol.SpokeMsg, protocol.EndMsg))
-        return isinstance(msg, (protocol.StartMsg, protocol.SpokeMsg, protocol.OverrideMsg, protocol.EndMsg))
+            return isinstance(
+                msg,
+                (protocol.JoinMsg, protocol.SpokeMsg, protocol.QuickReplyMsg, protocol.RatingMsg, protocol.EndMsg),
+            )
+        return isinstance(
+            msg,
+            (protocol.StartMsg, protocol.SpokeMsg, protocol.PrivateNudgeMsg, protocol.OverrideMsg, protocol.EndMsg),
+        )
 
     async def _on_join(self, ws: Any, name: str) -> None:
         conn = self._conn_for_ws(ws)
@@ -216,6 +236,85 @@ class SessionRoom:
         if self._utts_since_notes >= _NOTES_EVERY:
             self._trigger_notes()
 
+    async def _on_quick_reply(self, ws: Any, text: str) -> None:
+        """A child tapped a feeling chip. Auto-relay it to the whole circle (the child
+        opted in by tapping) and count it as their contribution / managed turn."""
+        text = text.strip()[:80]
+        if not text:
+            return
+        conn = self._conn_for_ws(ws)
+        if conn is None:
+            return
+        pid, name = conn.pid, conn.name
+        at = self.clock.now() if self.clock is not None else 0.0
+        self.transcript.append(
+            {"role": protocol.KID, "name": name, "pid": pid, "text": text, "at": at, "kind": "quick_reply"}
+        )
+        await self._send_therapist(
+            protocol.transcript_msg(role=protocol.KID, name=name, text=f"(tapped) {text}", at=at, pid=pid)
+        )
+        await self._broadcast(protocol.assistant_msg(f"{name} wants us to know: {text}"))
+        if (
+            self.machine is not None
+            and self.machine.state.lifecycle != Lifecycle.ENDED
+            and pid in self.machine.state.roster
+        ):
+            await self._feed(ParticipantSpoke(at=0.0, participant_id=pid, text=text))
+        self._utts_since_notes += 1
+        if self._utts_since_notes >= _NOTES_EVERY:
+            self._trigger_notes()
+
+    async def _on_rating(self, ws: Any, value: int) -> None:
+        """A child submitted a feelings-thermometer value during a rating phase."""
+        conn = self._conn_for_ws(ws)
+        if conn is None or self.machine is None:
+            return
+        pid, name = conn.pid, conn.name
+        if self.machine.state.lifecycle == Lifecycle.ENDED or pid not in self.machine.state.roster:
+            return
+        # Only honour ratings during an active rating phase (ignore stray/late taps).
+        phase = self.machine.state.phase
+        if phase is None:
+            return
+        try:
+            p = self.script.phase_by_id(phase.phase_id)
+        except KeyError:
+            return
+        if p.mode != "rating":
+            return
+        label, scale = p.title, p.rating_scale
+        value = max(1, min(scale, int(value)))
+        at = self.clock.now() if self.clock is not None else 0.0
+        line = f"{label}: {value}/{scale}"
+        self.transcript.append(
+            {"role": protocol.KID, "name": name, "pid": pid, "text": line, "at": at, "kind": "rating"}
+        )
+        await self._send_therapist(
+            protocol.transcript_msg(role=protocol.KID, name=name, text=line, at=at, pid=pid)
+        )
+        await self._feed(ParticipantRated(at=0.0, participant_id=pid, value=value))
+
+    async def _on_private_nudge(self, pid: str) -> None:
+        """Therapist-triggered: send one child gentle, one-directional encouragement."""
+        conn = self.kids.get(pid)
+        name = conn.name if conn is not None else (
+            self.machine.state.roster.get(pid) if self.machine is not None else None
+        )
+        if name is None:
+            return
+        await self._send_kid(
+            pid, protocol.private_prompt_msg(f"Take your time, {name} — we're glad you're here. \U0001f49b")
+        )
+        at = self.clock.now() if self.clock is not None else 0.0
+        note = f"(privately encouraged {name})"
+        self.transcript.append(
+            {"role": protocol.THERAPIST, "name": THERAPIST_NAME, "pid": None, "text": note, "at": at,
+             "kind": "private_nudge"}
+        )
+        await self._send_therapist(
+            protocol.transcript_msg(role=protocol.THERAPIST, name=THERAPIST_NAME, text=note, at=at, pid=None)
+        )
+
     # -- the core engine step ----------------------------------------------
 
     async def _feed(self, event: InputEvent) -> None:
@@ -257,11 +356,13 @@ class SessionRoom:
                 text = await self.phraser.phrase(action, facilitator_notes=notes_phase, recent_history=history)
                 if text:
                     await self._broadcast(protocol.assistant_msg(text))
+            if isinstance(action, RequestRating):
+                await self._broadcast(protocol.request_rating_msg(scale=action.scale, prompt=action.prompt_text))
             if isinstance(action, (AcknowledgeSpeaker, InviteParticipant)):
                 advanced = True
             if isinstance(action, EndSession):
                 await self._broadcast(protocol.session_over_msg())
-                self._trigger_notes(final=True)
+                self._trigger_final()
         if advanced:
             self._trigger_notes()
 
@@ -287,6 +388,12 @@ class SessionRoom:
                     cue("👉", f"{who(a.participant_id)}'s turn to share", "action", a.participant_id)
                 else:
                     cue("👉", f"Over to {who(a.participant_id)}", "action", a.participant_id)
+            elif isinstance(a, SuggestEcho):
+                snippet = a.text if len(a.text) <= 60 else a.text[:57] + "…"
+                cue("🔁", f'{who(a.participant_id)} opened up — try echoing it back: "{snippet}"',
+                    "action", a.participant_id)
+            elif isinstance(a, RequestRating):
+                cues.append({"icon": "🌡️", "text": "Feelings check-in — kids are tapping", "level": "info"})
             elif isinstance(a, SayPrompt) and a.source == PromptSource.WRAPUP_WARNING:
                 cues.append({"icon": "⏳", "text": "About a minute left in this activity", "level": "time"})
             elif isinstance(a, SayPrompt) and a.source == PromptSource.INTRO:
@@ -330,19 +437,49 @@ class SessionRoom:
 
     # -- AI notes (debounced, off the lock) --------------------------------
 
-    def _trigger_notes(self, *, final: bool = False) -> None:
-        if not final and self._notes_task is not None and not self._notes_task.done():
+    def _trigger_notes(self) -> None:
+        if self._notes_task is not None and not self._notes_task.done():
             return
         self._utts_since_notes = 0
-        self._notes_task = asyncio.create_task(self._run_notes(final=final))
+        self._notes_task = asyncio.create_task(self._run_notes())
 
-    async def _run_notes(self, *, final: bool) -> None:
+    async def _run_notes(self) -> None:
         snapshot = list(self.transcript)
         if not snapshot:
             return
-        markdown = await (self.notes.summary(snapshot) if final else self.notes.update(snapshot))
+        markdown = await self.notes.update(snapshot)
         if markdown:
-            await self._send_therapist(protocol.notes_msg(markdown, final=final))
+            self.last_notes = markdown
+            await self._send_therapist(protocol.notes_msg(markdown, final=False))
+
+    def _trigger_final(self) -> None:
+        """End-of-session: final clinical note + parent summary + a fail-silent disk dump."""
+        self._notes_task = asyncio.create_task(self._run_final())
+
+    async def _run_final(self) -> None:
+        snapshot = list(self.transcript)
+        final_md = await self.notes.summary(snapshot) if snapshot else ""
+        if final_md:
+            self.last_notes = final_md
+            await self._send_therapist(protocol.notes_msg(final_md, final=True))
+        parent_md = await self.notes.parent_summary(snapshot) if snapshot else ""
+        if parent_md:
+            self.last_parent_summary = parent_md
+            await self._send_therapist(protocol.parent_summary_msg(parent_md))
+        self._dump_session(final_md, parent_md)
+
+    def _dump_session(self, final_notes: str, parent_summary: str) -> None:
+        ratings = dict(self.machine.state.ratings) if self.machine is not None else {}
+        roster = dict(self.machine.state.roster) if self.machine is not None else {}
+        dump.dump_session(
+            code=self.code,
+            started_at=self.started_at.isoformat() if self.started_at else None,
+            roster=roster,
+            ratings=ratings,
+            transcript=self.transcript,
+            final_notes=final_notes,
+            parent_summary=parent_summary,
+        )
 
     # -- snapshots & sends --------------------------------------------------
 
@@ -376,6 +513,7 @@ class SessionRoom:
                 "lifecycle": Lifecycle.NOT_STARTED.value,
                 "phase_id": None,
                 "phase_title": None,
+                "phase_mode": None,
                 "phase_index": -1,
                 "activity_index": -1,
                 "current_turn": None,
@@ -392,9 +530,15 @@ class SessionRoom:
         now = self.clock.now() if self.clock is not None else 0.0
         eng = self._engagement()
         phase_title = None
+        phase_mode = None
         if phase is not None:
             with contextlib.suppress(KeyError):
-                phase_title = self.script.phase_by_id(phase.phase_id).title
+                p = self.script.phase_by_id(phase.phase_id)
+                phase_title, phase_mode = p.title, p.mode
+        # First / last feelings-rating phases drive the check-in vs check-out trend.
+        rating_phase_ids = [p.id for p in self.script.phases if p.mode == "rating"]
+        checkin_id = rating_phase_ids[0] if rating_phase_ids else None
+        checkout_id = rating_phase_ids[-1] if len(rating_phase_ids) > 1 else None
         current_turn = phase.current_turn if phase is not None else None
         participants = []
         if phase is not None:
@@ -413,12 +557,16 @@ class SessionRoom:
                         "utterances": en.get("utterances", 0),
                         "words": en.get("words", 0),
                         "last_spoke_ago": (now - last_at) if last_at is not None else None,
+                        "spontaneous": state.spontaneous.get(pid, 0),
+                        "rating_checkin": state.ratings.get(checkin_id, {}).get(pid) if checkin_id else None,
+                        "rating_checkout": state.ratings.get(checkout_id, {}).get(pid) if checkout_id else None,
                     }
                 )
         return {
             "lifecycle": state.lifecycle.value,
             "phase_id": phase.phase_id if phase is not None else None,
             "phase_title": phase_title,
+            "phase_mode": phase_mode,
             "phase_index": state.phase_index,
             "activity_index": state.phase_index,
             "current_turn": current_turn,
@@ -438,6 +586,12 @@ class SessionRoom:
 
     async def _send_kids(self, obj: dict) -> None:
         for conn in list(self.kids.values()):
+            await self._send(conn.ws, obj)
+
+    async def _send_kid(self, pid: str, obj: dict) -> None:
+        """Send to exactly one child (private prompts must not reach the others)."""
+        conn = self.kids.get(pid)
+        if conn is not None:
             await self._send(conn.ws, obj)
 
     async def _send_therapist(self, obj: dict) -> None:

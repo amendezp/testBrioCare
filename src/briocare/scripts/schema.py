@@ -101,6 +101,10 @@ class PacingRule(_Strict):
 class Phase(_Strict):
     id: str
     title: str
+    # "conversation" (default): turn-taking / open discussion.
+    # "rating": each child taps a feelings-thermometer value (no managed speaking turns).
+    mode: Literal["conversation", "rating"] = "conversation"
+    rating_scale: int = 5  # number of points on the thermometer when mode == "rating"
     opening_prompt: Prompt
     transition_prompt: Prompt | None = None
     turn_policy: TurnPolicy = Field(default_factory=TurnPolicy)
@@ -108,6 +112,12 @@ class Phase(_Strict):
     pacing: PacingRule = Field(default_factory=PacingRule)
     acknowledge_speakers: bool = False
     facilitator_notes: str | None = None
+
+    @model_validator(mode="after")
+    def _check_rating(self) -> Phase:
+        if self.mode == "rating" and self.rating_scale < 2:
+            raise ValueError("rating_scale must be >= 2 for a rating phase")
+        return self
 
 
 class ExerciseScript(_Strict):

@@ -30,6 +30,8 @@ class ParticipantPhaseState(BaseModel):
     invites_received: int = 0
     last_spoke_at: float | None = None
     skipped: bool = False
+    echoed: bool = False  # whether an echo/validation cue has fired for this kid this phase
+    rating: int | None = None  # feelings-thermometer value submitted this phase (rating phases)
 
 
 class PhaseRuntimeState(BaseModel):
@@ -57,6 +59,10 @@ class SessionState(BaseModel):
     agent_muted: bool = False
     paused: bool = False
     last_any_speech_at: float | None = None
+    # Cumulative, cross-phase per-participant tallies (per-phase state resets each phase).
+    contributions: dict[str, int] = Field(default_factory=dict)  # non-pass utterances per pid
+    spontaneous: dict[str, int] = Field(default_factory=dict)  # unprompted / out-of-turn shares per pid
+    ratings: dict[str, dict[str, int]] = Field(default_factory=dict)  # phase_id -> {pid: rating}
     history: list[dict[str, Any]] = Field(default_factory=list)
 
     def record(self, at: float, type_: str, model: BaseModel) -> None:
