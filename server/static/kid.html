@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>BrioCare — circle</title>
-<script src="https://unpkg.com/@daily-co/daily-js"></script>
+<script src="https://unpkg.com/@daily-co/daily-js@0.91.0"></script>
 <style>
   :root {
     /* Brightseed-aligned palette (teal + coral) */
@@ -95,6 +95,11 @@
   #private-bubble { display:none; max-width:640px; width:100%; background:var(--coral-soft); border:2px solid #f6d6db;
                     border-radius:20px; padding:14px 18px; font-size:19px; font-weight:700; color:#b23a4d; }
   #private-bubble.show { display:block; }
+
+  /* browser-not-supported warning (Web Speech is Chrome/Edge only) */
+  #nosr { display:none; max-width:640px; width:100%; background:#fff4e5; border:2px solid #f3c98a;
+          border-radius:16px; padding:12px 16px; font-size:15px; font-weight:700; color:#9a5b00; }
+  #nosr.show { display:block; }
 </style>
 </head>
 <body>
@@ -109,6 +114,7 @@
 
   <!-- SESSION -->
   <div class="topline"><div class="bird-sm" id="bird-sm"></div><div id="banner">Connecting…</div></div>
+  <div id="nosr">⚠️ This browser can't hear you — please use Chrome so the circle can include you.</div>
   <div id="private-bubble"></div>
   <div id="bubble"></div>
   <div id="feelings">
@@ -129,6 +135,7 @@ const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const room = (params.get("room") || "demo").trim() || "demo";
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SR) $("nosr").classList.add("show");  // Web Speech is Chrome/Edge only
 
 // --- original BrioCare hummingbird (teal + coral) ---
 const BIRD = `

@@ -45,6 +45,7 @@ _load_dotenv()  # so DAILY_API_KEY / ANTHROPIC_API_KEY in .env are picked up bef
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
 
+from briocare.runtime.state import Lifecycle  # noqa: E402
 from briocare.scripts.loader import load_script  # noqa: E402
 from server import protocol  # noqa: E402
 from server.daily import Daily  # noqa: E402
@@ -65,6 +66,11 @@ _rooms: dict[str, SessionRoom] = {}
 
 def _get_or_create_room(code: str) -> SessionRoom:
     room = _rooms.get(code)
+    # A finished session shouldn't burn the code: drop the ended room so the same
+    # code starts a fresh session (rooms are otherwise single-use per process).
+    if room is not None and room.machine is not None and room.machine.state.lifecycle == Lifecycle.ENDED:
+        _rooms.pop(code, None)
+        room = None
     if room is None:
         room = SessionRoom(
             code,

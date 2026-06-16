@@ -141,7 +141,10 @@ class SessionRoom:
     async def _ensure_room(self) -> str | None:
         if not self._room_fetched:
             self.room_url = await self.daily.get_or_create_room(self.code)
-            self._room_fetched = True
+            # Latch only on success (or when video is disabled, so there's nothing to retry).
+            # A transient Daily error then leaves video off forever for the room otherwise.
+            if self.room_url is not None or not self.daily.enabled:
+                self._room_fetched = True
         return self.room_url
 
     def _conn_for_ws(self, ws: Any) -> KidConn | None:
