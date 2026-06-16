@@ -145,6 +145,8 @@ def test_roster_keeps_join_order_and_round_robins_kids(monkeypatch) -> None:
         await _add_kid(room, "Leo")  # kid2
         await room.handle_client_message(protocol.THERAPIST, ther, _START)
         _cancel(room)
+        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # checkin -> warmup
+        _cancel(room)
         await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # warmup -> go_around
         _cancel(room)
         await room.handle_client_message(protocol.KID, maya, _spoke("happy"))  # kid1 speaks
@@ -275,8 +277,8 @@ def test_snapshot_header_after_start(monkeypatch) -> None:
 
     snap = _last_snapshot(asyncio.run(scenario()))
     assert snap["started_at"] is not None
-    assert snap["activity_total"] == 3
-    assert snap["activity_index"] == 0
+    assert snap["activity_total"] == 5  # feelings check-in + 3 activities + check-out
+    assert snap["activity_index"] == 0  # starts on the feelings check-in
 
 
 def test_engagement_counts_kid_words(monkeypatch) -> None:
@@ -322,3 +324,99 @@ def test_kid_cannot_start(monkeypatch) -> None:
         return room
 
     assert asyncio.run(scenario()).machine is None
+
+
+def test_quick_reply_relays_to_group_and_takes_the_turn(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> tuple[_FakeWS, _FakeWS]:
+        room = _make_room("qr1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")  # kid1
+        await _add_kid(room, "Leo")  # kid2
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # checkin -> warmup
+        _cancel(room)
+        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # warmup -> go_around (kid1's turn)
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, json.dumps({"type": "quick_reply", "text": "😟 nervous"}))
+        _cancel(room)
+        return ther, maya
+
+    ther, maya = asyncio.run(scenario())
+    bubbles = [m["text"] for m in maya.sent if m["type"] == "assistant"]
+    assert any(t == "Maya wants us to know: 😟 nervous" for t in bubbles)  # auto-relayed to the circle
+    # the tap counted as kid1's turn, so the round-robin moved on to kid2
+    assert ("kid2", "round_robin_turn") in _invites(ther)
+
+
+def test_private_nudge_reaches_only_the_target_kid(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> tuple[_FakeWS, _FakeWS]:
+        room = _make_room("pn1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")  # kid1
+        leo = await _add_kid(room, "Leo")  # kid2
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.THERAPIST, ther, json.dumps({"type": "private_nudge", "pid": "kid2"}))
+        return maya, leo
+
+    maya, leo = asyncio.run(scenario())
+    assert any(m["type"] == "private_prompt" for m in leo.sent)  # the target gets it
+    assert not any(m["type"] == "private_prompt" for m in maya.sent)  # nobody else does
+
+
+def test_rating_populates_snapshot_checkin(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> _FakeWS:
+        room = _make_room("rt1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        await _add_kid(room, "Maya")  # kid1
+        leo = await _add_kid(room, "Leo")  # kid2
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)  # enters feelings_checkin (rating)
+        maya_ws = next(c.ws for c in room.kids.values() if c.pid == "kid1")
+        await room.handle_client_message(protocol.KID, maya_ws, json.dumps({"type": "rating", "value": 4}))
+        await room.handle_client_message(protocol.KID, leo, json.dumps({"type": "rating", "value": 2}))
+        _cancel(room)
+        return ther
+
+    snap = _last_snapshot(asyncio.run(scenario()))
+    kid1 = next(p for p in snap["participants"] if p["pid"] == "kid1")
+    assert kid1["rating_checkin"] == 4  # ratings survive into later snapshots for the trend
+
+
+def test_session_end_sends_final_notes_and_writes_dump(tmp_path, monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+    monkeypatch.setenv("BRIOCARE_DUMP_DIR", str(tmp_path))
+
+    async def scenario() -> _FakeWS:
+        room = _make_room("d1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, _spoke("i feel happy"))
+        _cancel(room)
+        await room.handle_client_message(protocol.THERAPIST, ther, '{"type":"end"}')
+        if room._notes_task is not None:
+            await room._notes_task  # let the final note + parent summary + dump finish
+        _cancel(room)
+        return ther
+
+    ther = asyncio.run(scenario())
+    # the existing end-of-session final note is preserved
+    assert any(m["type"] == "notes" and m["final"] for m in ther.sent)
+    # and a fail-silent JSON dump was written with the transcript
+    files = list(tmp_path.glob("*.json"))
+    assert files, "a session dump should be written on end"
+    data = json.loads(files[0].read_text(encoding="utf-8"))
+    assert data["code"] == "d1"
+    assert any("happy" in e.get("text", "") for e in data["transcript"])

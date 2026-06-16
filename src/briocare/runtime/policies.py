@@ -21,6 +21,38 @@ def all_participants_done(state: PhaseRuntimeState, roster: list[str]) -> bool:
     return all(_done(state, pid) for pid in roster)
 
 
+def all_participants_rated(state: PhaseRuntimeState, roster: list[str]) -> bool:
+    """True once every rostered child has submitted a rating this (rating) phase."""
+    for pid in roster:
+        ps = state.per_participant.get(pid)
+        if ps is None or ps.rating is None:
+            return False
+    return True
+
+
+def rank_by_need(
+    cands: list[str],
+    contributions: dict[str, int],
+    state: PhaseRuntimeState,
+    roster: list[str],
+) -> list[str]:
+    """Order quiet-nudge candidates most-inhibited first.
+
+    Need = fewest cumulative contributions (across the whole session), then fewest
+    invites already received, then roster order — fully deterministic. The eligibility
+    filter (:func:`quiet_candidates`) is unchanged; this only re-prioritises it, so the
+    therapist is steered toward the child who most needs a low-pressure invitation.
+    """
+
+    def key(pid: str) -> tuple[int, int, int]:
+        ps = state.per_participant.get(pid)
+        invites = ps.invites_received if ps else 0
+        idx = roster.index(pid) if pid in roster else len(roster)
+        return (contributions.get(pid, 0), invites, idx)
+
+    return sorted(cands, key=key)
+
+
 def next_turn(
     order: TurnOrder,
     roster: list[str],

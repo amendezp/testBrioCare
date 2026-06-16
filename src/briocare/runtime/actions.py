@@ -62,6 +62,24 @@ class AcknowledgeSpeaker(_Action):
     text: str | None = None
 
 
+class SuggestEcho(_Action):
+    """Therapist-facing cue: a previously-quiet child just spoke — suggest echoing
+    their words back (the strongest low-pressure elicitation technique). Never sent
+    to the kids; surfaced only on the clinician console."""
+
+    kind: Literal["suggest_echo"] = "suggest_echo"
+    participant_id: str
+    text: str
+
+
+class RequestRating(_Action):
+    """Ask every child to tap a feelings-thermometer value (rating-mode phases)."""
+
+    kind: Literal["request_rating"] = "request_rating"
+    scale: int
+    prompt_text: str
+
+
 class AdvancePhase(_Action):
     kind: Literal["advance_phase"] = "advance_phase"
     from_phase: str
@@ -83,7 +101,15 @@ class NoOp(_Action):
 
 
 FacilitatorAction = Annotated[
-    SayPrompt | InviteParticipant | AcknowledgeSpeaker | AdvancePhase | WrapUpPhase | EndSession | NoOp,
+    SayPrompt
+    | InviteParticipant
+    | AcknowledgeSpeaker
+    | SuggestEcho
+    | RequestRating
+    | AdvancePhase
+    | WrapUpPhase
+    | EndSession
+    | NoOp,
     Field(discriminator="kind"),
 ]
 
@@ -92,8 +118,10 @@ _RANK: dict[str, int] = {
     "end_session": 1,
     "advance_phase": 2,
     "wrap_up_phase": 2,
+    "request_rating": 3,  # leads a rating phase, like an opening prompt
     # say_prompt handled specially (lead vs. non-lead) in _rank()
     "acknowledge_speaker": 4,
+    "suggest_echo": 4,
     "invite_participant": 6,
     "no_op": 7,
 }

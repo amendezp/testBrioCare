@@ -35,6 +35,16 @@ _SYSTEM_FINAL = (
     "Be factual and observational, quote the child where telling, never diagnose or invent "
     "details. This is a draft for the therapist to edit."
 )
+_SYSTEM_PARENT = (
+    "You are writing a short, warm note for the parent or guardian of a child who just "
+    "finished a clinician-led group session. Use plain, encouraging language — no clinical "
+    "jargon, no diagnosis, no labels. Given the session transcript (which may include "
+    "feelings 'check-in' / 'check-out' ratings out of 5), write 2-3 short paragraphs that "
+    "cover: what the group did, how their child took part and any feelings they shared, and "
+    "one gentle suggestion for home. Address the parent directly ('Today, your child…'). "
+    "Never invent details not in the transcript; if their child was quiet, say so kindly. "
+    "Keep it under about 180 words."
+)
 
 
 def render_transcript(transcript: list[dict[str, Any]]) -> str:
@@ -66,6 +76,24 @@ class NoteTaker:
     async def summary(self, transcript: list[dict[str, Any]]) -> str:
         """Write the end-of-session note."""
         return await self._note(transcript, _SYSTEM_FINAL, max_tokens=1000)
+
+    async def parent_summary(self, transcript: list[dict[str, Any]]) -> str:
+        """Write a warm, parent-facing recap. Fails open to empty (card stays hidden)."""
+        body = render_transcript(transcript).strip()
+        if not body or self._client is None:
+            return ""
+        try:
+            resp = await self._client.with_options(timeout=_TIMEOUT_SECONDS).messages.create(
+                model=MODEL,
+                max_tokens=600,
+                system=[{"type": "text", "text": _SYSTEM_PARENT, "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": f"Session transcript:\n\n{body}"}],
+            )
+        except Exception:
+            return ""
+        return "".join(
+            block.text for block in resp.content if getattr(block, "type", None) == "text"
+        ).strip()
 
     async def _note(self, transcript: list[dict[str, Any]], system: str, *, max_tokens: int) -> str:
         body = render_transcript(transcript).strip()
