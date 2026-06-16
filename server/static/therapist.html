@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>BrioCare — therapist console</title>
-<script src="https://unpkg.com/@daily-co/daily-js"></script>
+<script src="https://unpkg.com/@daily-co/daily-js@0.91.0"></script>
 <style>
   :root {
     --teal:#39a79e; --teal-light:#57c2b0; --teal-deep:#226468;
@@ -97,6 +97,7 @@
   <span class="sb-item">🕘 <b id="b-start">—</b></span>
   <span class="sb-item">⏱ <b id="b-elapsed">0:00</b></span>
   <span class="sb-item" id="b-cues">cues on</span>
+  <span class="sb-item" id="b-nosr" style="display:none;color:var(--coral);font-weight:700">⚠️ Use Chrome to capture speech</span>
 </div>
 
 <main>
@@ -344,6 +345,7 @@ document.querySelectorAll("button[data-cmd]").forEach(b => b.onclick = () => ove
 
 /* therapist mic: controls the call audio + transcription together */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SR) $("b-nosr").style.display = "";  // Web Speech is Chrome/Edge only
 let rec, micOn = false;
 function startSR() { if (!SR || rec) return; rec = new SR(); rec.lang="en-US"; rec.continuous=true; rec.interimResults=false;
   rec.onresult = (ev)=>{ for (let i=ev.resultIndex;i<ev.results.length;i++) if (ev.results[i].isFinal){ const t=ev.results[i][0].transcript.trim(); if (t) send({type:"spoke",text:t}); } };

@@ -40,7 +40,7 @@
   <p class="sub">A friendly circle, guided by your therapist — with a little helper along for the ride.</p>
 
   <label for="room">Session code</label>
-  <input id="room" value="demo" autocomplete="off" spellcheck="false" />
+  <input id="room" value="" placeholder="e.g. brio-3f9k2" autocomplete="off" spellcheck="false" />
 
   <div class="roles">
     <a class="role" id="kid" href="#"><span class="emoji">🙂</span><b>I'm a Kid</b><span>Join with your name</span></a>
@@ -65,6 +65,8 @@
     <circle cx="122" cy="39" r="3.4" fill="#f1697c"/>
   </svg>`;
   const room = document.getElementById("room");
+  // Prefill an unguessable code so sessions aren't all on the shared default "demo".
+  if (!room.value.trim()) room.value = "brio-" + Math.random().toString(36).slice(2, 7);
   function go(role) { const c = encodeURIComponent((room.value || "demo").trim() || "demo"); location.href = `/${role}?room=${c}`; }
   document.getElementById("kid").onclick = (e) => { e.preventDefault(); go("kid"); };
   document.getElementById("therapist").onclick = (e) => { e.preventDefault(); go("therapist"); };
