@@ -35,15 +35,20 @@ _SYSTEM_FINAL = (
     "Be factual and observational, quote the child where telling, never diagnose or invent "
     "details. This is a draft for the therapist to edit."
 )
-_SYSTEM_PARENT = (
-    "You are writing a short, warm note for the parent or guardian of a child who just "
-    "finished a clinician-led group session. Use plain, encouraging language — no clinical "
-    "jargon, no diagnosis, no labels. Given the session transcript (which may include "
-    "feelings 'check-in' / 'check-out' ratings out of 5), write 2-3 short paragraphs that "
-    "cover: what the group did, how their child took part and any feelings they shared, and "
-    "one gentle suggestion for home. Address the parent directly ('Today, your child…'). "
-    "Never invent details not in the transcript; if their child was quiet, say so kindly. "
-    "Keep it under about 180 words."
+_SYSTEM_PARENT_KID = (
+    "You are writing a short, warm note to the parent or guardian of ONE child after a "
+    "clinician-led group session. You are given ONLY that child's own words/feelings, a "
+    "generic list of the group's activities, and a note on how much they took part. Use "
+    "plain, encouraging language — no clinical jargon, no diagnosis, no labels. Write 2-3 "
+    "short paragraphs: how their child took part and any feelings they shared, set against "
+    "light, generic group context, plus one gentle suggestion for home. Address the parent "
+    "directly ('Today, your child…').\n\n"
+    "CRITICAL PRIVACY RULES: This note is for one family only. Do NOT use any first names at "
+    "all — refer to the subject as 'your child' and to any peer only as 'a friend' or 'the "
+    "group'. Even if the child's own words mention another person, a sibling, a teacher, a "
+    "place, a street, a school, or any other identifying detail, OMIT it entirely — describe "
+    "only your child's own feeling, never who it was about or where. Do not invent anything "
+    "beyond the information provided. If the child was quiet, say so kindly. Under ~160 words."
 )
 
 
@@ -77,17 +82,28 @@ class NoteTaker:
         """Write the end-of-session note."""
         return await self._note(transcript, _SYSTEM_FINAL, max_tokens=1000)
 
-    async def parent_summary(self, transcript: list[dict[str, Any]]) -> str:
-        """Write a warm, parent-facing recap. Fails open to empty (card stays hidden)."""
-        body = render_transcript(transcript).strip()
-        if not body or self._client is None:
+    async def parent_summary_for_kid(
+        self, *, kid_name: str, own_lines: list[str], activities: list[str], participation: str
+    ) -> str:
+        """Warm, parent-facing recap for ONE child. Private by construction: only this
+        child's own words, generic activity labels, and a participation note are ever sent
+        to the model — no other child's text reaches it. Fails open to empty."""
+        if self._client is None:
             return ""
+        own = "\n".join(line for line in own_lines if line.strip()).strip() or "(did not say much out loud today)"
+        acts = ", ".join(a for a in activities if a.strip()) or "a group feelings check-in"
+        user = (
+            f"Child's first name: {kid_name}\n"
+            f"What the group did (activities only — no other children are named): {acts}\n"
+            f"How {kid_name} took part: {participation}\n\n"
+            f"{kid_name}'s own words and feelings during the session:\n{own}"
+        )
         try:
             resp = await self._client.with_options(timeout=_TIMEOUT_SECONDS).messages.create(
                 model=MODEL,
-                max_tokens=600,
-                system=[{"type": "text", "text": _SYSTEM_PARENT, "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user", "content": f"Session transcript:\n\n{body}"}],
+                max_tokens=500,
+                system=[{"type": "text", "text": _SYSTEM_PARENT_KID, "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": user}],
             )
         except Exception:
             return ""

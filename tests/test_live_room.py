@@ -22,6 +22,7 @@ from server.room import SessionRoom
 
 from briocare.runtime.actions import InviteParticipant, InviteReason, NoOp
 from briocare.runtime.events import StartSession
+from briocare.runtime.state import Lifecycle
 from briocare.scripts.loader import load_script
 from briocare.sim.harness import SimulationHarness
 
@@ -390,6 +391,73 @@ def test_rating_populates_snapshot_checkin(monkeypatch) -> None:
     snap = _last_snapshot(asyncio.run(scenario()))
     kid1 = next(p for p in snap["participants"] if p["pid"] == "kid1")
     assert kid1["rating_checkin"] == 4  # ratings survive into later snapshots for the trend
+
+
+def test_kid_cannot_end_the_group_session(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> SessionRoom:
+        room = _make_room("ke1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, '{"type":"end"}')  # must be ignored
+        _cancel(room)
+        return room
+
+    room = asyncio.run(scenario())
+    assert room.machine is not None and room.machine.state.lifecycle != Lifecycle.ENDED
+
+
+def test_kid_leaving_notifies_therapist(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> _FakeWS:
+        room = _make_room("kl1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.detach(protocol.KID, maya)
+        return ther
+
+    ther = asyncio.run(scenario())
+    assert any(m["type"] == "notice" and "left the session" in m["text"] for m in ther.sent)
+
+
+def test_session_review_is_per_kid_and_transcript_isolated(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> _FakeWS:
+        room = _make_room("rev1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")  # kid1
+        leo = await _add_kid(room, "Leo")  # kid2
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, _spoke("i feel happy"))
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, leo, _spoke("i worry about Maya"))
+        _cancel(room)
+        await room.handle_client_message(protocol.THERAPIST, ther, '{"type":"end"}')
+        if room._notes_task is not None:
+            await room._notes_task
+        _cancel(room)
+        return ther
+
+    ther = asyncio.run(scenario())
+    reviews = [m for m in ther.sent if m["type"] == "session_review"]
+    assert reviews, "the therapist should receive a session_review at the end"
+    kids = {k["pid"]: k for k in reviews[-1]["kids"]}
+    assert set(kids) == {"kid1", "kid2"}
+    # each child's review carries only their OWN transcript lines
+    assert [t["text"] for t in kids["kid1"]["transcript"]] == ["i feel happy"]
+    assert [t["text"] for t in kids["kid2"]["transcript"]] == ["i worry about Maya"]
+    assert "Maya" not in " ".join(t["text"] for t in kids["kid1"]["transcript"])
 
 
 def test_session_end_sends_final_notes_and_writes_dump(tmp_path, monkeypatch) -> None:

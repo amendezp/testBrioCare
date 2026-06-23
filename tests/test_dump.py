@@ -16,13 +16,13 @@ def test_dump_session_writes_json(tmp_path, monkeypatch) -> None:
         ratings={"feelings_checkin": {"kid1": 4}, "feelings_checkout": {"kid1": 2}},
         transcript=[{"name": "Maya", "text": "hi", "kind": "rating"}],
         final_notes="## Summary\nGood session.",
-        parent_summary="Today your child took part.",
+        parent_summaries={"kid1": {"name": "Maya", "summary": "Today your child took part."}},
     )
     assert path is not None and path.exists()
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["ratings"]["feelings_checkin"]["kid1"] == 4
     assert data["ratings"]["feelings_checkout"]["kid1"] == 2
-    assert data["parent_summary"].startswith("Today")
+    assert data["parent_summaries"]["kid1"]["summary"].startswith("Today")
 
 
 def test_dump_session_is_fail_silent(tmp_path, monkeypatch) -> None:

@@ -107,9 +107,62 @@
   #nosr { display:none; max-width:640px; width:100%; background:#fff4e5; border:2px solid #f3c98a;
           border-radius:16px; padding:12px 16px; font-size:15px; font-weight:700; color:#9a5b00; }
   #nosr.show { display:block; }
+
+  /* leave button + celebratory end screen */
+  #leave { position:fixed; top:12px; right:12px; z-index:8; background:#fff; color:var(--coral);
+           border:2px solid #f6d6db; border-radius:14px; padding:8px 14px; font-size:15px; font-weight:800;
+           box-shadow:0 4px 14px rgba(241,105,124,.18); display:none; }
+  #leave.show { display:block; }
+  #endscreen { position:fixed; inset:0; z-index:20; display:none; align-items:center; justify-content:center;
+               background:linear-gradient(170deg,#eafaf6 0%,#fdeef1 100%); padding:24px; }
+  #endscreen.show { display:flex; }
+  #endscreen .box { width:100%; max-width:460px; text-align:center; }
+  #animals { width:min(86vw,360px); margin:0 auto 10px; }
+  #end-title { font-size:clamp(26px,4.6vh,34px); font-weight:800; color:var(--teal-deep); margin:6px 0; }
+  #end-sub { font-size:clamp(16px,2.4vh,19px); color:var(--mut); margin:0; }
 </style>
 </head>
 <body>
+  <button id="leave" aria-label="Leave the circle">✕ Leave</button>
+
+  <!-- CELEBRATORY END SCREEN -->
+  <div id="endscreen"><div class="box">
+    <div id="animals">
+      <svg viewBox="0 0 360 220" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <circle cx="40" cy="34" r="3" fill="#f1697c"/><circle cx="320" cy="40" r="3.5" fill="#39a79e"/>
+        <circle cx="300" cy="20" r="2.5" fill="#e8902c"/><circle cx="70" cy="18" r="2.5" fill="#57c2b0"/>
+        <ellipse cx="180" cy="210" rx="180" ry="40" fill="#cdeee4"/>
+        <ellipse cx="180" cy="214" rx="120" ry="26" fill="#bfe9dd"/>
+        <circle cx="180" cy="150" r="20" fill="#fff" stroke="#39a79e" stroke-width="3"/>
+        <path d="M180 130 a20 20 0 0 1 0 40" fill="#f1697c" opacity=".85"/>
+        <g>
+          <ellipse cx="86" cy="168" rx="34" ry="30" fill="#f1697c"/>
+          <ellipse cx="86" cy="178" rx="20" ry="16" fill="#fde7ea"/>
+          <path d="M58 150 l-6 -22 22 10 Z" fill="#f1697c"/><path d="M114 150 l6 -22 -22 10 Z" fill="#f1697c"/>
+          <circle cx="76" cy="162" r="3.6" fill="#1f3b3d"/><circle cx="96" cy="162" r="3.6" fill="#1f3b3d"/>
+          <circle cx="86" cy="172" r="3" fill="#1f3b3d"/>
+          <path d="M120 175 q26 -6 30 -28 q-18 8 -30 22 Z" fill="#f37a8c"/>
+        </g>
+        <g>
+          <rect x="166" y="68" width="11" height="36" rx="5.5" fill="#fff" stroke="#39a79e" stroke-width="3"/>
+          <rect x="184" y="68" width="11" height="36" rx="5.5" fill="#fff" stroke="#39a79e" stroke-width="3"/>
+          <ellipse cx="180" cy="120" rx="26" ry="24" fill="#fff" stroke="#39a79e" stroke-width="3"/>
+          <circle cx="172" cy="116" r="3.2" fill="#1f3b3d"/><circle cx="188" cy="116" r="3.2" fill="#1f3b3d"/>
+          <circle cx="180" cy="124" r="3" fill="#f1697c"/>
+        </g>
+        <g>
+          <circle cx="252" cy="146" r="10" fill="#e8902c"/><circle cx="300" cy="146" r="10" fill="#e8902c"/>
+          <ellipse cx="276" cy="170" rx="34" ry="30" fill="#e8902c"/>
+          <ellipse cx="276" cy="180" rx="19" ry="15" fill="#fbe7c9"/>
+          <circle cx="266" cy="164" r="3.6" fill="#1f3b3d"/><circle cx="286" cy="164" r="3.6" fill="#1f3b3d"/>
+          <circle cx="276" cy="174" r="3.4" fill="#1f3b3d"/>
+        </g>
+      </svg>
+    </div>
+    <h1 id="end-title">Great job today! 🌟</h1>
+    <p id="end-sub">You can close this tab now.</p>
+  </div></div>
+
   <!-- JOIN GATE -->
   <div id="gate"><div class="box">
     <div class="bird" id="bird-big"></div>
@@ -214,10 +267,22 @@ function join() {
   if (!name) { $("name").focus(); return; }
   myName = name;
   $("gate").style.display = "none";
+  $("leave").classList.add("show");
   connect(name);
 }
 $("join").onclick = join;
 $("name").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
+
+function showEndScreen(title, sub) {
+  $("end-title").textContent = title;
+  $("end-sub").textContent = sub;
+  $("leave").classList.remove("show");
+  $("endscreen").classList.add("show");
+}
+$("leave").onclick = () => {
+  showEndScreen("Bye for now! 👋", "Great job today — you can close this tab.");
+  try { if (ws) ws.close(); } catch (e) {}  // leaving just disconnects this child; the group continues
+};
 
 function connect(name) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -234,7 +299,7 @@ function handle(msg) {
   else if (msg.type === "request_rating") showFeelings(msg.scale, msg.prompt);
   else if (msg.type === "private_prompt") { $("private-bubble").textContent = msg.text; $("private-bubble").classList.add("show"); }
   else if (msg.type === "snapshot") applySnapshot(msg.state);
-  else if (msg.type === "session_over") { started = false; setLive(false); hideFeelings(); $("quick-replies").classList.remove("show"); $("banner").className = ""; $("banner").textContent = "All done — great job! 🌟"; $("mic").disabled = true; }
+  else if (msg.type === "session_over") { started = false; setLive(false); hideFeelings(); $("quick-replies").classList.remove("show"); $("mic").disabled = true; showEndScreen("All done — great job! 🌟", "Your therapist wrapped up the circle."); }
   else if (msg.type === "notice") $("mic-sub").textContent = msg.text;
 }
 

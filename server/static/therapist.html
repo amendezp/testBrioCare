@@ -81,6 +81,21 @@
   .notes { max-height:360px; overflow:auto; } .notes h3 { font-size:14px; margin:12px 0 4px; color:var(--teal-deep); }
   .notes ul { margin:4px 0 4px 18px; padding:0; } .notes p { margin:4px 0; } .notes em { color:var(--mut); }
   .status { color:var(--mut); font-size:12px; } .final-tag { color:#1e9e5a; font-size:11px; font-weight:800; }
+
+  /* end-of-session review lobby */
+  #review { position:fixed; inset:0; z-index:30; background:var(--bg); overflow:auto; display:none; padding:18px; }
+  #review.show { display:block; }
+  .review-inner { max-width:1100px; margin:0 auto; }
+  .review-top { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+  .review-h { margin:0; font-size:19px; color:var(--teal-deep); }
+  #review-kids { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:14px; margin-top:14px; }
+  .kidcard .kidhead { display:flex; align-items:center; gap:8px; margin-bottom:6px; }
+  .kidcard .ename { font-size:16px; font-weight:800; }
+  .kidcard .trendbig { margin-left:auto; font-size:20px; }
+  .kidcard .ph { font-size:13px; color:var(--teal-deep); margin:12px 0 4px; text-transform:none; letter-spacing:0; }
+  .kidtx { margin:8px 0; } .kidtx summary { cursor:pointer; font-size:12px; color:var(--mut); }
+  .kidtx-lines { margin-top:6px; max-height:160px; overflow:auto; }
+  .privacy-note { font-size:11px; color:var(--mut); margin:2px 0 0; }
 </style>
 </head>
 <body>
@@ -144,13 +159,21 @@
         <button class="ghost" id="btn-copy" style="float:right;padding:3px 9px;font-size:12px">Copy</button></h2>
       <div class="notes" id="notes"><span class="status">Notes build as the conversation gets going…</span></div>
     </section>
-    <section class="card">
-      <h2>Parent summary <span class="final-tag" id="ps-tag" style="display:none">· ready</span>
-        <button class="ghost" id="btn-copy-ps" style="float:right;padding:3px 9px;font-size:12px">Copy</button></h2>
-      <div class="notes" id="parent-summary"><span class="status">A warm recap for the parent appears when the session ends.</span></div>
-    </section>
   </div>
 </main>
+
+<!-- END-OF-SESSION REVIEW LOBBY (shown when the session ends) -->
+<div id="review"><div class="review-inner">
+  <div class="review-top">
+    <h2 class="review-h">Session review</h2>
+    <button class="ghost" id="review-close" style="margin-left:auto">← Back to console</button>
+  </div>
+  <section class="card"><h2>Clinical note (whole session)</h2>
+    <div class="notes" id="review-notes"></div></section>
+  <h2 class="review-h" style="margin:18px 0 0">Per-child summaries &amp; data</h2>
+  <p class="privacy-note">Each parent summary covers only that child plus light, name-free group context.</p>
+  <div id="review-kids"></div>
+</div></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -164,7 +187,7 @@ function colorForPid(pid) { const m = /(\d+)$/.exec(pid || ""); return m ? KID_C
 function esc(s) { return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 const RATING_FACES = ["","😣","😟","😐","🙂","😄"];  // index by 1..5
 function faceFor(v) { return (v >= 1 && v < RATING_FACES.length) ? RATING_FACES[v] : "·"; }
-let pidByName = {}, lastParent = "";
+let pidByName = {}, reviewSummaries = {};
 
 $("bird").innerHTML = `<svg viewBox="0 0 130 120" xmlns="http://www.w3.org/2000/svg"><path d="M46 72 L13 60 L27 88 Z" fill="#f37a8c"/><path d="M60 60 Q30 40 13 52 Q36 56 54 74 Z" fill="#ec7a87"/><ellipse cx="62" cy="69" rx="25" ry="18" fill="#39a79e"/><ellipse cx="57" cy="76" rx="17" ry="10" fill="#57c2b0"/><circle cx="87" cy="50" r="15" fill="#57c2b0"/><path d="M87 35 A15 15 0 0 1 101 46 Q88 48 79 56 A15 15 0 0 1 87 35 Z" fill="#39a79e"/><path d="M101 50 L130 44 L101 55 Z" fill="#226468"/><circle cx="91" cy="47" r="2.8" fill="#1f3b3d"/><path d="M66 60 Q76 24 97 25 Q90 49 72 66 Z" fill="#f1697c"/><circle cx="122" cy="39" r="3.4" fill="#f1697c"/></svg>`;
 
@@ -182,8 +205,8 @@ function handle(m) {
     case "cues": m.cues.forEach(addCue); break;
     case "transcript": addTranscript(m); break;
     case "notes": renderNotes(m.markdown, m.final); break;
-    case "parent_summary": renderParentSummary(m.markdown); break;
-    case "session_over": addCue({ icon:"🏁", text:"Session ended", level:"info" }); break;
+    case "session_review": renderReview(m); break;
+    case "session_over": addCue({ icon:"🏁", text:"Session ended — review ready", level:"info" }); break;
     case "notice": addCue({ icon:"ℹ️", text:m.text, level:"info" }); break;
   }
 }
@@ -317,7 +340,37 @@ function addTranscript(m) {
   box.append(div); box.scrollTop = box.scrollHeight;
 }
 function renderNotes(md, final) { lastNotes = md; $("notes").innerHTML = mdLite(md); $("notes-final").style.display = final ? "" : "none"; }
-function renderParentSummary(md) { lastParent = md; $("parent-summary").innerHTML = mdLite(md); $("ps-tag").style.display = ""; }
+
+function renderReview(m) {
+  $("review-notes").innerHTML = m.notes ? mdLite(m.notes) : '<span class="status">No clinical note generated (AI notes off).</span>';
+  reviewSummaries = {};
+  const wrap = $("review-kids");
+  const kids = m.kids || [];
+  wrap.innerHTML = kids.map(k => {
+    reviewSummaries[k.pid] = k.parent_summary || "";
+    const ci = k.rating_checkin, co = k.rating_checkout;
+    const trend = ci != null ? (faceFor(ci) + (co != null ? " → " + faceFor(co) : "")) : "—";
+    const summaryHtml = k.parent_summary ? mdLite(k.parent_summary) : '<span class="status">No summary (AI notes off).</span>';
+    return `<section class="card kidcard">
+      <div class="kidhead"><span class="dot" style="background:${colorForPid(k.pid)}"></span>
+        <span class="ename">${esc(k.name)}</span><span class="trendbig">${trend}</span></div>
+      <div class="meta">${k.utterances||0} shares · ${k.words||0} words · 🤝 ${k.spontaneous||0} spontaneous</div>
+      <details class="kidtx"><summary>What ${esc(k.name)} said (${(k.transcript||[]).length})</summary>
+        <div class="kidtx-lines" data-pid="${esc(k.pid)}"></div></details>
+      <h3 class="ph">Parent summary
+        <button class="ghost copy-ps" data-pid="${esc(k.pid)}" style="float:right;padding:3px 9px;font-size:12px">Copy</button></h3>
+      <div class="notes">${summaryHtml}</div>
+    </section>`;
+  }).join("") || '<span class="status">No children took part.</span>';
+  // transcript lines via textContent (XSS-safe)
+  kids.forEach(k => {
+    const box = wrap.querySelector('.kidtx-lines[data-pid="' + k.pid + '"]');
+    if (box) (k.transcript || []).forEach(t => { const d = document.createElement("div"); d.className = "t-line"; d.textContent = t.text; box.append(d); });
+  });
+  wrap.querySelectorAll(".copy-ps").forEach(b => b.onclick = () => { const s = reviewSummaries[b.dataset.pid]; if (s) navigator.clipboard.writeText(s); });
+  $("review").classList.add("show");
+}
+$("review-close").onclick = () => $("review").classList.remove("show");
 function mdLite(md) {
   const esc = (s) => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
   const lines = esc(md).split("\n"); let html = "", ul = false;
@@ -340,7 +393,6 @@ $("btn-end").onclick = () => send({ type:"end" });
 $("btn-skip").onclick = () => { if (snapshot.current_turn) override("skip_participant", { pid: snapshot.current_turn }); };
 $("btn-inject").onclick = () => { const t = $("inject").value.trim(); if (t) { override("inject_prompt", { text:t }); $("inject").value = ""; } };
 $("btn-copy").onclick = () => { if (lastNotes) navigator.clipboard.writeText(lastNotes); };
-$("btn-copy-ps").onclick = () => { if (lastParent) navigator.clipboard.writeText(lastParent); };
 document.querySelectorAll("button[data-cmd]").forEach(b => b.onclick = () => override(b.dataset.cmd));
 
 /* therapist mic: controls the call audio + transcription together */
