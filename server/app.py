@@ -44,6 +44,7 @@ _load_dotenv()  # so DAILY_API_KEY / ANTHROPIC_API_KEY in .env are picked up bef
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect  # noqa: E402
 from fastapi.responses import FileResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 
 from briocare.runtime.state import Lifecycle  # noqa: E402
 from briocare.scripts.loader import load_script  # noqa: E402
@@ -57,6 +58,7 @@ _STATIC = Path(__file__).resolve().parent / "static"
 _GROUP_SCRIPT = Path(__file__).resolve().parent / "scripts" / "group_checkin.yaml"
 
 app = FastAPI(title="BrioCare Telehealth Co-Pilot")
+app.mount("/static", StaticFiles(directory=_STATIC), name="static")  # shared assets (animals.js)
 
 _phraser = Phraser()
 _notes = NoteTaker()
