@@ -105,6 +105,9 @@ class Phase(_Strict):
     # "rating": each child taps a feelings-thermometer value (no managed speaking turns).
     mode: Literal["conversation", "rating"] = "conversation"
     rating_scale: int = 5  # number of points on the thermometer when mode == "rating"
+    # menu_only phases are an on-demand activity library: skipped by linear auto-advance,
+    # launched by the clinician via goto_phase, and they return to a ready state when done.
+    menu_only: bool = False
     opening_prompt: Prompt
     transition_prompt: Prompt | None = None
     turn_policy: TurnPolicy = Field(default_factory=TurnPolicy)
