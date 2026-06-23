@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>BrioCare — therapist console</title>
 <script src="https://unpkg.com/@daily-co/daily-js@0.91.0"></script>
+<script src="/static/animals.js"></script>
 <style>
   :root {
     --teal:#39a79e; --teal-light:#57c2b0; --teal-deep:#226468;
@@ -189,6 +190,7 @@ let elapsedBase = 0, elapsedSince = 0;
 const KID_COLORS = ["#2f6df0","#1e9e5a","#e8682c","#8b5cf6","#d6336c","#0ea5b7"];
 function colorForPid(pid) { const m = /(\d+)$/.exec(pid || ""); return m ? KID_COLORS[(parseInt(m[1],10)-1) % KID_COLORS.length] : "#226468"; }
 function esc(s) { return String(s == null ? "" : s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+const THERA_BUDDY = (typeof brioRandomAnimal === "function") ? brioRandomAnimal() : "";
 const RATING_FACES = ["","😣","😟","😐","🙂","😄"];  // index by 1..5
 function faceFor(v) { return (v >= 1 && v < RATING_FACES.length) ? RATING_FACES[v] : "·"; }
 let pidByName = {}, reviewSummaries = {};
@@ -300,7 +302,7 @@ function renderState(st) {
   if (!started) {
     eng.innerHTML = lobby.length ? lobby.map(p =>
       `<div class="erow"><span class="dot" style="background:${colorForPid(p.pid)}"></span><span class="ename">${esc(p.name)}</span><span class="estats">in lobby</span></div>`).join("")
-      : '<div class="status">Kids will appear here as they join.</div>';
+      : `<div style="text-align:center;padding:10px 0"><div style="width:84px;margin:0 auto 8px">${THERA_BUDDY}</div><div class="status">Waiting for kids to join the circle…</div></div>`;
     return;
   }
   const maxWords = Math.max(1, ...st.participants.map(p => p.words || 0));
