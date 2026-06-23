@@ -183,6 +183,7 @@ function wsSend(o) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); 
 
 function showFeelings(scale, prompt) {
   rated = false;
+  $("bubble").classList.remove("show");  // the thermometer carries its own prompt — avoid a duplicate
   const n = Math.max(2, Math.min(FEELING_FACES.length, scale || 5));
   $("feelings-q").textContent = prompt || "How are you feeling?";
   $("feelings-q").style.display = "";
@@ -229,7 +230,7 @@ function connect(name) {
 function handle(msg) {
   if (msg.type === "room_info") mountVideo(msg.url);
   else if (msg.type === "identity") myPid = msg.pid;
-  else if (msg.type === "assistant") { $("bubble").textContent = msg.text; $("bubble").classList.add("show"); }
+  else if (msg.type === "assistant") { if (phaseMode !== "rating") { $("bubble").textContent = msg.text; $("bubble").classList.add("show"); } }
   else if (msg.type === "request_rating") showFeelings(msg.scale, msg.prompt);
   else if (msg.type === "private_prompt") { $("private-bubble").textContent = msg.text; $("private-bubble").classList.add("show"); }
   else if (msg.type === "snapshot") applySnapshot(msg.state);
@@ -248,7 +249,8 @@ function applySnapshot(st) {
   else { $("banner").className = ""; $("banner").textContent = st.current_turn_name ? `${st.current_turn_name}'s turn` : "We're listening together"; }
   // The non-voice chips are available during a talking activity; the thermometer owns the rating phase.
   $("quick-replies").classList.toggle("show", started && phaseMode !== "rating");
-  if (phaseMode !== "rating") hideFeelings();
+  if (phaseMode === "rating") $("bubble").classList.remove("show");  // thermometer prompt only — no duplicate
+  else hideFeelings();
   paintMic();
 }
 
