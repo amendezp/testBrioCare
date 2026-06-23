@@ -42,7 +42,7 @@ from briocare.runtime.events import (
 from briocare.runtime.machine import SessionMachine
 from briocare.runtime.state import Lifecycle
 from briocare.scripts.schema import ExerciseScript
-from server import dump, protocol
+from server import dump, privacy, protocol
 from server.daily import Daily
 from server.notes import NoteTaker
 from server.phraser import Phraser
@@ -91,7 +91,6 @@ class SessionRoom:
         self._utts_since_notes = 0
         self._notes_task: asyncio.Task[None] | None = None
         self.last_notes = ""
-        self.last_parent_summary = ""
 
         self.room_url: str | None = None
         self._room_fetched = False
@@ -136,6 +135,8 @@ class SessionRoom:
         conn = self._conn_for_ws(ws)
         if conn is not None:
             self.kids.pop(conn.pid, None)
+            if self.machine is not None and self.machine.state.lifecycle != Lifecycle.ENDED:
+                await self._send_therapist(protocol.notice_msg(f"{conn.name} left the session."))
             await self._send_therapist(protocol.snapshot_msg(self._snapshot()))
 
     async def _ensure_room(self) -> str | None:
@@ -182,9 +183,11 @@ class SessionRoom:
     @staticmethod
     def _role_allows(role: str, msg: protocol.ClientMessage) -> bool:
         if role == protocol.KID:
+            # A child can join, speak, tap a chip, and rate — but never end the group
+            # session (they leave by closing their own tab; the therapist ends the session).
             return isinstance(
                 msg,
-                (protocol.JoinMsg, protocol.SpokeMsg, protocol.QuickReplyMsg, protocol.RatingMsg, protocol.EndMsg),
+                (protocol.JoinMsg, protocol.SpokeMsg, protocol.QuickReplyMsg, protocol.RatingMsg),
             )
         return isinstance(
             msg,
@@ -207,7 +210,8 @@ class SessionRoom:
             return
         if self.machine is not None:
             return
-        roster = {c.pid: c.name for c in self.kids.values()}  # join order = turn order
+        # join order = turn order; de-duplicate names so per-child name redaction is unambiguous
+        roster = privacy.dedupe_names({c.pid: c.name for c in self.kids.values()})
         await self._feed(StartSession(at=0.0, roster=roster))
 
     async def _on_spoke(self, role: str, ws: Any, text: str) -> None:
@@ -456,22 +460,76 @@ class SessionRoom:
             await self._send_therapist(protocol.notes_msg(markdown, final=False))
 
     def _trigger_final(self) -> None:
-        """End-of-session: final clinical note + parent summary + a fail-silent disk dump."""
+        """End-of-session: clinical note + per-child review (privacy-scoped parent
+        summaries) for the therapist lobby + a fail-silent disk dump."""
         self._notes_task = asyncio.create_task(self._run_final())
 
     async def _run_final(self) -> None:
-        snapshot = list(self.transcript)
-        final_md = await self.notes.summary(snapshot) if snapshot else ""
+        transcript = list(self.transcript)
+        final_md = await self.notes.summary(transcript) if transcript else ""
         if final_md:
             self.last_notes = final_md
             await self._send_therapist(protocol.notes_msg(final_md, final=True))
-        parent_md = await self.notes.parent_summary(snapshot) if snapshot else ""
-        if parent_md:
-            self.last_parent_summary = parent_md
-            await self._send_therapist(protocol.parent_summary_msg(parent_md))
-        self._dump_session(final_md, parent_md)
+        kids = await self._build_kid_reviews(transcript)
+        await self._send_therapist(protocol.session_review_msg(notes=final_md, kids=kids))
+        self._dump_session(final_md, kids)
 
-    def _dump_session(self, final_notes: str, parent_summary: str) -> None:
+    async def _build_kid_reviews(self, transcript: list[dict[str, Any]]) -> list[dict]:
+        """One review per rostered child: ratings, participation, that child's OWN
+        transcript, and a privacy-scoped parent summary (built only from that child's
+        own data + generic activity labels, then defensively redacted of any peer name)."""
+        if self.machine is None:
+            return []
+        state = self.machine.state
+        eng = self._engagement()
+        activities = [p.title for p in self.script.phases]  # labels only — no children named
+        rating_phase_ids = [p.id for p in self.script.phases if p.mode == "rating"]
+        checkin_id = rating_phase_ids[0] if rating_phase_ids else None
+        checkout_id = rating_phase_ids[-1] if len(rating_phase_ids) > 1 else None
+        reviews: list[dict] = []
+        for pid, name in state.roster.items():
+            own = [e for e in transcript if e.get("pid") == pid]
+            en = eng.get(pid, {})
+            spont = state.spontaneous.get(pid, 0)
+            participation = self._participation_note(name, en.get("utterances", 0), spont)
+            others = [n for p, n in state.roster.items() if p != pid]
+            # Privacy: scrub peers from the child's own words BEFORE generation, then fail
+            # closed AFTER generation if any name/place-shaped token survives.
+            summary = await self.notes.parent_summary_for_kid(
+                kid_name=name,
+                own_lines=privacy.scrub_own_lines([str(e.get("text", "")) for e in own], others=others),
+                activities=activities,
+                participation=participation,
+            )
+            summary = privacy.sanitize_summary(summary, others=others, keep=name)
+            reviews.append(
+                {
+                    "pid": pid,
+                    "name": name,
+                    "rating_checkin": state.ratings.get(checkin_id, {}).get(pid) if checkin_id else None,
+                    "rating_checkout": state.ratings.get(checkout_id, {}).get(pid) if checkout_id else None,
+                    "utterances": en.get("utterances", 0),
+                    "words": en.get("words", 0),
+                    "spontaneous": spont,
+                    "contributions": state.contributions.get(pid, 0),
+                    "transcript": [
+                        {"text": e.get("text", ""), "at": e.get("at"), "kind": e.get("kind", "")} for e in own
+                    ],
+                    "parent_summary": summary,
+                }
+            )
+        return reviews
+
+    @staticmethod
+    def _participation_note(name: str, utterances: int, spontaneous: int) -> str:
+        if utterances == 0:
+            return f"{name} was quiet today and mostly listened."
+        note = f"{name} shared {utterances} time" + ("s" if utterances != 1 else "")
+        if spontaneous:
+            note += f", including {spontaneous} time" + ("s" if spontaneous != 1 else "") + " speaking up unprompted"
+        return note + "."
+
+    def _dump_session(self, final_notes: str, kids: list[dict]) -> None:
         ratings = dict(self.machine.state.ratings) if self.machine is not None else {}
         roster = dict(self.machine.state.roster) if self.machine is not None else {}
         dump.dump_session(
@@ -481,7 +539,7 @@ class SessionRoom:
             ratings=ratings,
             transcript=self.transcript,
             final_notes=final_notes,
-            parent_summary=parent_summary,
+            parent_summaries={k["pid"]: {"name": k["name"], "summary": k["parent_summary"]} for k in kids},
         )
 
     # -- snapshots & sends --------------------------------------------------

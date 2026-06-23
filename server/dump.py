@@ -31,9 +31,12 @@ def dump_session(
     ratings: dict[str, dict[str, int]],
     transcript: list[dict[str, Any]],
     final_notes: str = "",
-    parent_summary: str = "",
+    parent_summaries: dict[str, dict[str, str]] | None = None,
 ) -> Path | None:
-    """Write a session JSON snapshot. Returns the path on success, ``None`` on any failure."""
+    """Write a session JSON snapshot. Returns the path on success, ``None`` on any failure.
+
+    ``parent_summaries`` maps participant id -> {name, summary}; each summary is already
+    privacy-scoped to that one child."""
     try:
         directory = dump_dir()
         directory.mkdir(parents=True, exist_ok=True)
@@ -47,7 +50,7 @@ def dump_session(
             "ratings": ratings,
             "transcript": transcript,
             "final_notes": final_notes,
-            "parent_summary": parent_summary,
+            "parent_summaries": parent_summaries or {},
         }
         path.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")
         return path

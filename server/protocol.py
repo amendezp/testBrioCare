@@ -152,9 +152,11 @@ def request_rating_msg(*, scale: int, prompt: str) -> dict:
     return {"type": "request_rating", "scale": scale, "prompt": prompt}
 
 
-def parent_summary_msg(markdown: str) -> dict:
-    """A warm, parent-facing recap of the session (therapist-facing card)."""
-    return {"type": "parent_summary", "markdown": markdown}
+def session_review_msg(*, notes: str, kids: list[dict]) -> dict:
+    """End-of-session review for the therapist 'lobby': the clinical note plus a
+    per-child card (ratings, participation, that child's own transcript, and a
+    privacy-scoped parent summary)."""
+    return {"type": "session_review", "notes": notes, "kids": kids}
 
 
 def notes_msg(markdown: str, *, final: bool = False) -> dict:
