@@ -143,6 +143,10 @@
         <button id="btn-inject">Share</button>
       </div>
     </section>
+    <section class="card">
+      <h2>Group activities</h2>
+      <div class="controls" id="activities"><span class="status">Start the session, then launch an activity anytime.</span></div>
+    </section>
   </div>
 
   <div class="col">
@@ -282,6 +286,15 @@ function renderState(st) {
   const lobby = st.lobby || [];
   startBtn.disabled = started || lobby.length === 0;
   startBtn.textContent = started ? "Session running" : (lobby.length ? `Start session (${lobby.length} joined)` : "Start session");
+
+  // group-activity launch buttons — enabled once the session is running
+  const ACT_EMOJI = { act_feelings:"😀", act_compliments:"💛", act_brave:"🦁", act_thermometer:"🌡️", act_roleplay:"🎭" };
+  const acts = st.activities || [];
+  if (acts.length) {
+    $("activities").innerHTML = acts.map(a =>
+      `<button class="ghost act-btn" data-act="${esc(a.id)}"${started ? "" : " disabled"}>${ACT_EMOJI[a.id] || "▶"} ${esc(a.title)}</button>`).join("");
+    $("activities").querySelectorAll(".act-btn").forEach(b => b.onclick = () => override("goto_phase", { phase_id: b.dataset.act }));
+  }
 
   const eng = $("eng");
   if (!started) {

@@ -564,10 +564,14 @@ class SessionRoom:
 
     def _snapshot(self) -> dict:
         lobby = [{"pid": c.pid, "name": c.name} for c in self.kids.values()]
+        # The linear session is the non-menu_only phases; menu_only are on-demand activities.
+        linear_ids = [p.id for p in self.script.phases if not p.menu_only]
         header = {
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "elapsed_seconds": self.clock.now() if self.clock is not None else 0.0,
-            "activity_total": len(self.script.phases),
+            "activity_total": len(linear_ids),
+            # On-demand activity library the therapist can launch by button.
+            "activities": [{"id": p.id, "title": p.title} for p in self.script.phases if p.menu_only],
         }
         if self.machine is None:
             return {
@@ -596,8 +600,9 @@ class SessionRoom:
             with contextlib.suppress(KeyError):
                 p = self.script.phase_by_id(phase.phase_id)
                 phase_title, phase_mode = p.title, p.mode
-        # First / last feelings-rating phases drive the check-in vs check-out trend.
-        rating_phase_ids = [p.id for p in self.script.phases if p.mode == "rating"]
+        # First / last *linear* feelings-rating phases drive the check-in vs check-out trend
+        # (the on-demand thermometer activity must not be mistaken for the closing check-out).
+        rating_phase_ids = [p.id for p in self.script.phases if p.mode == "rating" and not p.menu_only]
         checkin_id = rating_phase_ids[0] if rating_phase_ids else None
         checkout_id = rating_phase_ids[-1] if len(rating_phase_ids) > 1 else None
         current_turn = phase.current_turn if phase is not None else None
@@ -629,7 +634,9 @@ class SessionRoom:
             "phase_title": phase_title,
             "phase_mode": phase_mode,
             "phase_index": state.phase_index,
-            "activity_index": state.phase_index,
+            "activity_index": (
+                linear_ids.index(phase.phase_id) if phase is not None and phase.phase_id in linear_ids else -1
+            ),
             "current_turn": current_turn,
             "current_turn_name": roster.get(current_turn) if current_turn else None,
             "paused": state.paused,

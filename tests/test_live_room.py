@@ -488,3 +488,24 @@ def test_session_end_sends_final_notes_and_writes_dump(tmp_path, monkeypatch) ->
     data = json.loads(files[0].read_text(encoding="utf-8"))
     assert data["code"] == "d1"
     assert any("happy" in e.get("text", "") for e in data["transcript"])
+
+
+def test_snapshot_lists_activities_and_goto_launches_one(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> tuple[dict, _FakeWS]:
+        room = _make_room("act1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        first = _last_snapshot(ther)
+        goto = json.dumps({"type": "override", "command": "goto_phase", "args": {"phase_id": "act_compliments"}})
+        await room.handle_client_message(protocol.THERAPIST, ther, goto)
+        _cancel(room)
+        return first, ther
+
+    first, ther = asyncio.run(scenario())
+    assert any(a["id"] == "act_compliments" for a in first["activities"])  # library is advertised
+    assert _last_snapshot(ther)["phase_id"] == "act_compliments"  # button launches it

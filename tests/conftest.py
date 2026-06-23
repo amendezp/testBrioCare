@@ -51,12 +51,14 @@ def make_phase(
     transition: str | None = "Next.",
     mode: str = "conversation",
     rating_scale: int = 5,
+    menu_only: bool = False,
 ) -> Phase:
     return Phase(
         id=phase_id,
         title=phase_id.title(),
         mode=mode,
         rating_scale=rating_scale,
+        menu_only=menu_only,
         opening_prompt=Prompt(text=f"Opening {phase_id}"),
         transition_prompt=Prompt(text=transition) if transition else None,
         acknowledge_speakers=acknowledge,

@@ -351,9 +351,6 @@ class SessionMachine:
     def _complete_phase(self, now: float) -> list[FacilitatorAction]:
         leaving = self._current_phase()
         actions: list[FacilitatorAction] = [WrapUpPhase(at=now, phase_id=leaving.id)]
-        next_index = self.state.phase_index + 1
-        has_next = next_index < len(self.script.phases)
-        to_id = self.script.phases[next_index].id if has_next else None
         if leaving.transition_prompt is not None:
             actions.append(
                 SayPrompt(
@@ -363,13 +360,30 @@ class SessionMachine:
                     phase_id=leaving.id,
                 )
             )
+        if leaving.menu_only:
+            # On-demand activity: don't auto-chain — return to a ready state so the
+            # clinician launches the next activity (or ends) from the menu.
+            actions.append(AdvancePhase(at=now, from_phase=leaving.id, to_phase=None))
+            self.state.lifecycle = Lifecycle.BETWEEN_PHASES
+            self.state.phase = None
+            return actions
+        next_index = self._next_linear_index(self.state.phase_index)
+        to_id = self.script.phases[next_index].id if next_index is not None else None
         actions.append(AdvancePhase(at=now, from_phase=leaving.id, to_phase=to_id))
         self.state.lifecycle = Lifecycle.BETWEEN_PHASES
-        if has_next:
+        if next_index is not None:
             actions.extend(self._enter_phase(next_index, now))
         else:
             actions.extend(self._close_session(now))
         return actions
+
+    def _next_linear_index(self, after: int) -> int | None:
+        """Next non-menu_only phase index after ``after`` (menu_only activities are
+        launched on demand, never reached by linear auto-advance)."""
+        for i in range(after + 1, len(self.script.phases)):
+            if not self.script.phases[i].menu_only:
+                return i
+        return None
 
     def _close_session(self, now: float) -> list[FacilitatorAction]:
         self.state.lifecycle = Lifecycle.CLOSING

@@ -146,3 +146,147 @@ phases:
     facilitator_notes: >
       A closing feelings check-in that mirrors the opening one, so the therapist can
       see how each child's mood shifted across the session.
+
+  # --- On-demand activity library (menu_only) ----------------------------------
+  # Evidence-based group activities the therapist launches by button at any time.
+  # They are skipped by linear auto-advance and return to a ready state when done.
+
+  - id: act_feelings
+    title: Feeling naming
+    menu_only: true
+    opening_prompt:
+      text: >
+        Let's name some feelings. When it's your turn, say one feeling word — like happy,
+        nervous, excited, or proud. You can always say "pass."
+    transition_prompt:
+      text: Thank you for naming those feelings, everyone.
+    acknowledge_speakers: true
+    turn_policy:
+      order: round_robin
+      per_turn_seconds: 25
+      per_turn_hard_seconds: 45
+      allow_pass: true
+      one_turn_per_participant: true
+    participation:
+      require_all_speak: true
+      invite_quiet_after_seconds: 15
+      max_invites_per_participant: 2
+      quiet_participant_strategy: direct_invite
+    pacing:
+      min_phase_seconds: 0
+      max_phase_seconds: 180
+      wrapup_warning_seconds: 30
+      advance_when: all_spoke_or_timer
+    facilitator_notes: >
+      Emotion-identification go-around (the "Feelings" step in Coping Cat / FRIENDS-style
+      CBT). Validate each child's feeling warmly and briefly; gently invite quieter kids.
+
+  - id: act_compliments
+    title: Compliment circle
+    menu_only: true
+    opening_prompt:
+      text: >
+        Let's pass a little kindness around the circle. On your turn, say one kind thing —
+        about someone here, or about the whole group.
+    transition_prompt:
+      text: What a kind circle. Thank you, everyone.
+    acknowledge_speakers: true
+    turn_policy:
+      order: round_robin
+      per_turn_seconds: 25
+      per_turn_hard_seconds: 45
+      allow_pass: true
+      one_turn_per_participant: true
+    participation:
+      require_all_speak: true
+      invite_quiet_after_seconds: 15
+      max_invites_per_participant: 2
+      quiet_participant_strategy: direct_invite
+    pacing:
+      min_phase_seconds: 0
+      max_phase_seconds: 180
+      wrapup_warning_seconds: 30
+      advance_when: all_spoke_or_timer
+    facilitator_notes: >
+      Compliment-giving round — builds positive peer interaction and reinforcement, a
+      core social-skills-group activity. Keep it sincere and specific.
+
+  - id: act_brave
+    title: Brave moment
+    menu_only: true
+    opening_prompt:
+      text: >
+        Let's share brave moments. On your turn, tell us one brave thing you did — or one
+        you'd like to try. Brave can be small!
+    transition_prompt:
+      text: Those were some brave shares. Thank you.
+    acknowledge_speakers: true
+    turn_policy:
+      order: round_robin
+      per_turn_seconds: 30
+      per_turn_hard_seconds: 50
+      allow_pass: true
+      one_turn_per_participant: true
+    participation:
+      require_all_speak: true
+      invite_quiet_after_seconds: 18
+      max_invites_per_participant: 2
+      quiet_participant_strategy: direct_invite
+    pacing:
+      min_phase_seconds: 0
+      max_phase_seconds: 200
+      wrapup_warning_seconds: 30
+      advance_when: all_spoke_or_timer
+    facilitator_notes: >
+      "Brave step" sharing — the exposure / FEAR-plan idea from Coping Cat: name a small
+      brave action. Celebrate every attempt; never push a child who passes.
+
+  - id: act_thermometer
+    title: Feelings thermometer
+    menu_only: true
+    mode: rating
+    rating_scale: 5
+    opening_prompt:
+      text: >
+        Quick check — tap the face that shows how you're feeling right now.
+    transition_prompt:
+      text: Thanks for checking in.
+    turn_policy:
+      order: open
+    participation:
+      require_all_speak: false
+      quiet_participant_strategy: skip
+    pacing:
+      min_phase_seconds: 0
+      max_phase_seconds: 60
+      advance_when: timer
+    facilitator_notes: >
+      A standalone feelings-thermometer reading (SUDS-style scaling). Launch it anytime to
+      take the group's temperature mid-session.
+
+  - id: act_roleplay
+    title: Role-play corner
+    menu_only: true
+    opening_prompt:
+      text: >
+        Let's practice together. I'll set up a situation — like saying hi to a new friend —
+        and we'll take turns trying it out. It's okay to be silly!
+    transition_prompt:
+      text: Great practicing, everyone.
+    acknowledge_speakers: true
+    turn_policy:
+      order: open
+      allow_pass: true
+      one_turn_per_participant: false
+    participation:
+      require_all_speak: false
+      quiet_participant_strategy: skip
+    pacing:
+      min_phase_seconds: 0
+      max_phase_seconds: 240
+      wrapup_warning_seconds: 40
+      advance_when: timer
+    facilitator_notes: >
+      Therapist-led role-play of a social situation (greetings, joining a game, asking for
+      help) — the core of Social Effectiveness Therapy (SET-C). The therapist drives;
+      children practise and improvise with support.
