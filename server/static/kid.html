@@ -15,11 +15,15 @@
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
   html,body { height:100%; }
   body {
-    margin:0; min-height:100%; display:flex; flex-direction:column; align-items:center;
-    gap:18px; padding:20px 16px 28px; text-align:center; color:var(--ink);
+    margin:0; min-height:100dvh; display:flex; flex-direction:column; align-items:center;
+    gap:clamp(8px,1.8vh,18px); padding:clamp(10px,2vh,20px) 16px clamp(12px,2vh,28px);
+    text-align:center; color:var(--ink); overflow-y:auto;
     font:17px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
     background:linear-gradient(170deg, #f1fbf8 0%, #f7fbf9 45%, #fdf1f3 100%);
   }
+  /* Never let the flex column squish items below their content (which caused text to
+     overflow its box and overlap neighbours on short screens) — overflow & scroll instead. */
+  body > * { flex-shrink:0; }
   button { font-family:inherit; touch-action:manipulation; cursor:pointer; border:0; }
 
   /* join gate */
@@ -39,24 +43,26 @@
   /* session */
   .bird-sm { width:54px; height:50px; flex:0 0 auto; }
   .topline { display:flex; align-items:center; gap:12px; }
-  #banner { font-size:23px; font-weight:800; min-height:30px; color:var(--teal-deep); }
+  #banner { font-size:clamp(18px,2.6vh,23px); font-weight:800; min-height:26px; color:var(--teal-deep); }
   #banner.turn { color:var(--coral); }
   #bubble { position:relative; max-width:640px; width:100%; background:#fff; border:2px solid #eef6f4;
-            border-radius:20px; padding:16px 20px; font-size:20px; font-weight:600; color:var(--ink);
-            box-shadow:0 8px 22px rgba(34,100,104,.08); min-height:30px; display:none; }
+            border-radius:20px; padding:clamp(10px,1.6vh,16px) 20px; font-size:clamp(16px,2.3vh,20px); font-weight:600;
+            color:var(--ink); box-shadow:0 8px 22px rgba(34,100,104,.08); min-height:24px; display:none; }
   #bubble.show { display:block; }
   #bubble::before { content:""; position:absolute; top:-12px; left:40px; width:22px; height:22px; background:#fff;
                     border-left:2px solid #eef6f4; border-top:2px solid #eef6f4; transform:rotate(45deg); }
-  #video { width:100%; max-width:640px; aspect-ratio:16/10; background:#fff; border:3px solid #fff;
-           border-radius:24px; overflow:hidden; box-shadow:0 12px 30px rgba(34,100,104,.14); }
+  /* Bound the video by viewport HEIGHT (width chosen so height = width*10/16 never exceeds ~36vh),
+     so on short screens it can't crowd out the prompt and mic. */
+  #video { width:min(100%, 640px, 58vh); aspect-ratio:16/10; background:#fff; border:3px solid #fff;
+           border-radius:24px; overflow:hidden; box-shadow:0 12px 30px rgba(34,100,104,.14); flex:0 0 auto; }
   .vid-off { display:flex; height:100%; align-items:center; justify-content:center; color:var(--mut); font-size:15px; padding:18px; }
 
-  /* THE mic button — the unmistakable mute/unmute indicator */
-  #mic-wrap { display:flex; flex-direction:column; align-items:center; gap:10px; margin-top:4px; }
-  #mic { width:172px; height:172px; border-radius:50%; color:#fff; font-size:0;
-         display:flex; align-items:center; justify-content:center; position:relative;
+  /* THE mic button — the unmistakable mute/unmute indicator (fluid, never crowds the screen) */
+  #mic-wrap { display:flex; flex-direction:column; align-items:center; gap:clamp(4px,1vh,10px); }
+  #mic { width:clamp(92px,17vh,172px); height:clamp(92px,17vh,172px); border-radius:50%; color:#fff; font-size:0;
+         display:flex; align-items:center; justify-content:center; position:relative; flex:0 0 auto;
          transition:transform .08s, background .2s, box-shadow .2s; }
-  #mic svg { width:74px; height:74px; }
+  #mic svg { width:43%; height:43%; }
   #mic:active { transform:scale(.96); }
   #mic:disabled { opacity:.5; }
   /* muted = coral, "tap to talk" */
@@ -67,9 +73,9 @@
   /* extra invite glow when it's this kid's turn but still muted */
   #mic.invite { animation:invite 1s infinite; }
   @keyframes invite { 0%,100%{transform:scale(1)} 50%{transform:scale(1.06)} }
-  #mic-label { font-size:21px; font-weight:800; }
+  #mic-label { font-size:clamp(16px,2.3vh,21px); font-weight:800; }
   #mic-label.muted { color:var(--coral); } #mic-label.live { color:var(--teal-deep); }
-  #mic-sub { font-size:15px; color:var(--mut); min-height:20px; }
+  #mic-sub { font-size:clamp(13px,1.9vh,15px); color:var(--mut); min-height:18px; }
 
   /* quick-reply chips — a non-voice way to join in */
   #quick-replies { display:none; flex-wrap:wrap; gap:10px; justify-content:center; max-width:640px; }
@@ -80,16 +86,17 @@
   .qchip:active { transform:scale(.95); }
 
   /* feelings thermometer — check-in / check-out */
-  #feelings { display:none; flex-direction:column; align-items:center; gap:16px; width:100%; max-width:640px;
-              background:#fff; border:2px solid #eef6f4; border-radius:24px; padding:24px 20px;
-              box-shadow:0 12px 30px rgba(34,100,104,.12); }
+  #feelings { display:none; flex-direction:column; align-items:center; gap:clamp(10px,1.8vh,16px); width:100%;
+              max-width:640px; background:#fff; border:2px solid #eef6f4; border-radius:24px;
+              padding:clamp(14px,2.4vh,24px) 20px; box-shadow:0 12px 30px rgba(34,100,104,.12); }
   #feelings.show { display:flex; }
-  #feelings-q { font-size:22px; font-weight:800; color:var(--teal-deep); }
-  #feelings-row { display:flex; gap:10px; flex-wrap:wrap; justify-content:center; }
-  .feel { width:74px; height:74px; border-radius:50%; border:2px solid #eef6f4; background:#fbfdfc; font-size:36px;
-          display:flex; align-items:center; justify-content:center; transition:transform .08s, border-color .15s; }
+  #feelings-q { font-size:clamp(17px,2.5vh,22px); font-weight:800; color:var(--teal-deep); }
+  #feelings-row { display:flex; gap:clamp(6px,1.4vw,10px); flex-wrap:wrap; justify-content:center; }
+  .feel { width:clamp(54px,11vh,74px); height:clamp(54px,11vh,74px); border-radius:50%; border:2px solid #eef6f4;
+          background:#fbfdfc; font-size:clamp(26px,5.5vh,36px); display:flex; align-items:center; justify-content:center;
+          transition:transform .08s, border-color .15s; }
   .feel:active { transform:scale(.9); border-color:var(--teal-light); }
-  #feelings-thanks { display:none; font-size:21px; font-weight:800; color:var(--teal); }
+  #feelings-thanks { display:none; font-size:clamp(17px,2.4vh,21px); font-weight:800; color:var(--teal); }
 
   /* private encouragement — soft, "just for you" */
   #private-bubble { display:none; max-width:640px; width:100%; background:var(--coral-soft); border:2px solid #f6d6db;
