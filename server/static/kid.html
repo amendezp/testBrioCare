@@ -282,9 +282,23 @@ function showEndScreen(title, sub) {
   $("leave").classList.remove("show");
   $("endscreen").classList.add("show");
 }
+// Fully disconnect this child: stop the camera + mic and LEAVE the Daily call so
+// the therapist no longer sees their video, then drop transcription.
+function leaveCall() {
+  stopSR();
+  live = false;
+  if (callFrame) {
+    try { callFrame.setLocalVideo(false); } catch (e) {}
+    try { callFrame.setLocalAudio(false); } catch (e) {}
+    try { callFrame.leave(); } catch (e) {}
+    try { callFrame.destroy(); } catch (e) {}
+    callFrame = null;
+  }
+}
 $("leave").onclick = () => {
   showEndScreen("Bye for now! 👋", "Great job today — you can close this tab.");
-  try { if (ws) ws.close(); } catch (e) {}  // leaving just disconnects this child; the group continues
+  leaveCall();                       // camera + mic off and out of the video call
+  try { if (ws) ws.close(); } catch (e) {}  // leaving disconnects this child; the group continues
 };
 
 function connect(name) {
@@ -302,7 +316,7 @@ function handle(msg) {
   else if (msg.type === "request_rating") showFeelings(msg.scale, msg.prompt);
   else if (msg.type === "private_prompt") { $("private-bubble").textContent = msg.text; $("private-bubble").classList.add("show"); }
   else if (msg.type === "snapshot") applySnapshot(msg.state);
-  else if (msg.type === "session_over") { started = false; setLive(false); hideFeelings(); $("quick-replies").classList.remove("show"); $("mic").disabled = true; showEndScreen("All done — great job! 🌟", "Your therapist wrapped up the circle."); }
+  else if (msg.type === "session_over") { started = false; leaveCall(); hideFeelings(); $("quick-replies").classList.remove("show"); $("mic").disabled = true; showEndScreen("All done — great job! 🌟", "Your therapist wrapped up the circle."); }
   else if (msg.type === "notice") $("mic-sub").textContent = msg.text;
 }
 
