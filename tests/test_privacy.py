@@ -49,6 +49,18 @@ def test_sanitize_fails_closed_on_unredactable_identifier() -> None:
     ).startswith("Your child")
 
 
+def test_sanitize_allows_activity_title_tokens() -> None:
+    # Found in the live E2E: the model echoes activity titles ("Warm-up", "Role-play
+    # corner") mid-sentence; those are script constants and must NOT drop the summary.
+    allow = privacy.title_tokens(["Warm-up", "Role-play corner", "Feeling naming"])
+    text = "Your child joined the Warm-up and loved the Role-play corner."
+    assert privacy.sanitize_summary(text, others=["Leo"], keep="Maya", allow=allow) == text
+    # a real name still fails closed even with the allowlist present
+    assert privacy.sanitize_summary(
+        "Your child sat with Tyler during the Warm-up.", others=["Leo"], keep="Maya", allow=allow
+    ) == ""
+
+
 def test_scrub_own_lines_removes_peers_before_generation() -> None:
     out = privacy.scrub_own_lines(["i sat with Leo", "i feel happy"], others=["Leo"])
     assert out == ["i sat with a friend", "i feel happy"]
