@@ -490,6 +490,53 @@ def test_session_end_sends_final_notes_and_writes_dump(tmp_path, monkeypatch) ->
     assert any("happy" in e.get("text", "") for e in data["transcript"])
 
 
+def test_full_session_review_shows_checkin_checkout_trend(monkeypatch) -> None:
+    """Deterministic end-to-end: drive real rating messages through a whole session to
+    feelings_checkout and confirm the review lobby shows each kid's check-in -> check-out
+    trend (the thing the live E2E couldn't test without racing on auto-advance)."""
+    _install_fakes(monkeypatch)
+
+    def _rate(v: int) -> str:
+        return json.dumps({"type": "rating", "value": v})
+
+    async def scenario() -> list[dict]:
+        room = _make_room("full1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        leo = await _add_kid(room, "Leo")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)  # -> feelings_checkin
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, _rate(4))
+        await room.handle_client_message(protocol.KID, leo, _rate(2))  # both rated -> warmup
+        _cancel(room)
+        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # warmup -> go_around
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, _spoke("happy"))
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, leo, _spoke("nervous"))  # both spoke -> reflect
+        _cancel(room)
+        # advance until we're actually in feelings_checkout (don't overshoot)
+        for _ in range(4):
+            ph = room.machine.state.phase
+            if ph is not None and ph.phase_id == "feelings_checkout":
+                break
+            await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)
+            _cancel(room)
+        assert room.machine.state.phase is not None
+        assert room.machine.state.phase.phase_id == "feelings_checkout"
+        await room.handle_client_message(protocol.KID, maya, _rate(5))
+        await room.handle_client_message(protocol.KID, leo, _rate(3))  # both rated -> auto-end
+        _cancel(room)
+        # ratings landed under the linear check-out phase, and the review reads them
+        assert room.machine.state.ratings.get("feelings_checkout", {}).get("kid1") == 5
+        return await room._build_kid_reviews(list(room.transcript))
+
+    kids = {k["pid"]: k for k in asyncio.run(scenario())}
+    assert kids["kid1"]["rating_checkin"] == 4 and kids["kid1"]["rating_checkout"] == 5
+    assert kids["kid2"]["rating_checkin"] == 2 and kids["kid2"]["rating_checkout"] == 3
+
+
 def test_review_checkout_ignores_menu_thermometer(monkeypatch) -> None:
     """Found in the live E2E: the review builder picked act_thermometer (menu_only,
     last rating phase in the script) as 'check-out', so the trend came back empty."""
