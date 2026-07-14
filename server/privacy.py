@@ -54,16 +54,29 @@ def redact_roster_names(text: str, others: list[str]) -> str:
     return text
 
 
-def has_residual_proper_noun(text: str, *, keep: str = "") -> bool:
-    """True if any title-cased token (other than the child's own name or a safe word)
-    survives mid-sentence — i.e. a likely person or place name."""
+def title_tokens(titles: list[str]) -> set[str]:
+    """Tokens from known-safe script text (activity titles) that a summary may echo
+    mid-sentence — e.g. 'Warm-up', 'Compliment', 'Role-play'. These are script
+    constants, never children's names."""
+    return {tok for t in titles for tok in _TOKEN.findall(t)}
+
+
+def has_residual_proper_noun(text: str, *, keep: str = "", allow: set[str] | None = None) -> bool:
+    """True if any title-cased token (other than the child's own name, a safe word, or
+    an allowed script token) survives mid-sentence — i.e. a likely person or place name."""
     keep_l = keep.strip().lower()
+    allowed = allow or set()
     for sentence in _SENTENCE.split(text.strip()):
         tokens = _TOKEN.findall(sentence)
         for i, tok in enumerate(tokens):
             if i == 0:
                 continue  # sentence-initial capitalisation is expected
-            if _TITLECASE.match(tok) and tok not in _SAFE_CAPS and tok.lower() != keep_l:
+            if (
+                _TITLECASE.match(tok)
+                and tok not in _SAFE_CAPS
+                and tok not in allowed
+                and tok.lower() != keep_l
+            ):
                 return True
     return False
 
@@ -74,13 +87,14 @@ def scrub_own_lines(lines: list[str], *, others: list[str]) -> list[str]:
     return [redact_roster_names(line, others) for line in lines]
 
 
-def sanitize_summary(text: str, *, others: list[str], keep: str) -> str:
+def sanitize_summary(text: str, *, others: list[str], keep: str, allow: set[str] | None = None) -> str:
     """Redact roster names, then fail closed: return '' if any name/place-shaped token
-    still remains, so an unredacted identifier can never ship."""
+    still remains, so an unredacted identifier can never ship. ``allow`` whitelists
+    known-safe script tokens (activity titles) to avoid false-positive drops."""
     if not text:
         return ""
     redacted = redact_roster_names(text, others)
-    if has_residual_proper_noun(redacted, keep=keep):
+    if has_residual_proper_noun(redacted, keep=keep, allow=allow):
         return ""  # fail closed — therapist falls back to the child's transcript
     return redacted
 

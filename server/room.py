@@ -483,7 +483,12 @@ class SessionRoom:
         state = self.machine.state
         eng = self._engagement()
         activities = [p.title for p in self.script.phases]  # labels only — no children named
-        rating_phase_ids = [p.id for p in self.script.phases if p.mode == "rating"]
+        # Activity-title tokens are script constants the model may echo ("Warm-up") —
+        # allow them so the fail-closed validator doesn't drop good summaries.
+        safe_tokens = privacy.title_tokens(activities)
+        # Linear rating phases only — the on-demand (menu_only) thermometer must not be
+        # mistaken for the closing check-out (mirrors _snapshot).
+        rating_phase_ids = [p.id for p in self.script.phases if p.mode == "rating" and not p.menu_only]
         checkin_id = rating_phase_ids[0] if rating_phase_ids else None
         checkout_id = rating_phase_ids[-1] if len(rating_phase_ids) > 1 else None
         reviews: list[dict] = []
@@ -501,7 +506,7 @@ class SessionRoom:
                 activities=activities,
                 participation=participation,
             )
-            summary = privacy.sanitize_summary(summary, others=others, keep=name)
+            summary = privacy.sanitize_summary(summary, others=others, keep=name, allow=safe_tokens)
             reviews.append(
                 {
                     "pid": pid,

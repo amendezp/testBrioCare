@@ -490,6 +490,28 @@ def test_session_end_sends_final_notes_and_writes_dump(tmp_path, monkeypatch) ->
     assert any("happy" in e.get("text", "") for e in data["transcript"])
 
 
+def test_review_checkout_ignores_menu_thermometer(monkeypatch) -> None:
+    """Found in the live E2E: the review builder picked act_thermometer (menu_only,
+    last rating phase in the script) as 'check-out', so the trend came back empty."""
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> dict:
+        room = _make_room("trend1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        m = room.machine
+        m.state.ratings = {"feelings_checkin": {"kid1": 4}, "feelings_checkout": {"kid1": 5}}
+        kids = await room._build_kid_reviews(list(room.transcript))
+        return kids[0]
+
+    kid = asyncio.run(scenario())
+    assert kid["rating_checkin"] == 4
+    assert kid["rating_checkout"] == 5  # feelings_checkout, NOT the menu-only act_thermometer
+
+
 def test_snapshot_lists_activities_and_goto_launches_one(monkeypatch) -> None:
     _install_fakes(monkeypatch)
 
