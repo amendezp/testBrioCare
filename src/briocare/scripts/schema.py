@@ -36,6 +36,7 @@ class AdvanceWhen(str, Enum):
     ALL_SPOKE = "all_spoke"
     TIMER = "timer"
     ALL_SPOKE_OR_TIMER = "all_spoke_or_timer"
+    MANUAL = "manual"  # only the clinician advances (Next activity) — never auto
 
 
 class Prompt(_Strict):

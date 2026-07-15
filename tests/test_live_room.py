@@ -146,9 +146,7 @@ def test_roster_keeps_join_order_and_round_robins_kids(monkeypatch) -> None:
         await _add_kid(room, "Leo")  # kid2
         await room.handle_client_message(protocol.THERAPIST, ther, _START)
         _cancel(room)
-        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # checkin -> warmup
-        _cancel(room)
-        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # warmup -> go_around
+        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # checkin -> share_feelings
         _cancel(room)
         await room.handle_client_message(protocol.KID, maya, _spoke("happy"))  # kid1 speaks
         _cancel(room)
@@ -170,7 +168,7 @@ def test_silent_kid_gets_quiet_nudge(monkeypatch) -> None:
         await _add_kid(room, "Maya")
         await _add_kid(room, "Leo")
         await room.handle_client_message(protocol.THERAPIST, ther, _START)
-        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # -> go_around (require_all_speak)
+        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # -> share_feelings (require_all_speak)
         await _drain(room)  # nobody speaks -> timers fire quiet nudges then advance
         return ther
 
@@ -278,7 +276,7 @@ def test_snapshot_header_after_start(monkeypatch) -> None:
 
     snap = _last_snapshot(asyncio.run(scenario()))
     assert snap["started_at"] is not None
-    assert snap["activity_total"] == 5  # feelings check-in + 3 activities + check-out
+    assert snap["activity_total"] == 3  # check-in + tell-us-more + check-out
     assert snap["activity_index"] == 0  # starts on the feelings check-in
 
 
@@ -356,6 +354,45 @@ def test_ready_ignored_once_session_started(monkeypatch) -> None:
     assert next(iter(room.kids.values())).ready is False
 
 
+def test_all_done_notice_and_prompt_mirror(monkeypatch) -> None:
+    """In the manual share phase, when the last kid shares the therapist gets an
+    'Everyone has shared' notice; and every snapshot mirrors the kids' current prompt."""
+    _install_fakes(monkeypatch)
+
+    def _rate(v: int) -> str:
+        return json.dumps({"type": "rating", "value": v})
+
+    async def scenario() -> _FakeWS:
+        room = _make_room("np1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        leo = await _add_kid(room, "Leo")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)  # -> feelings_checkin
+        _cancel(room)
+        snap = _last_snapshot(ther)
+        assert snap["current_prompt"].startswith("🌡️")  # thermometer mirrored to therapist
+        await room.handle_client_message(protocol.KID, maya, _rate(4))
+        await room.handle_client_message(protocol.KID, leo, _rate(2))  # -> share_feelings (manual)
+        _cancel(room)
+        assert "go around the circle" in _last_snapshot(ther)["current_prompt"].lower()
+        await room.handle_client_message(protocol.KID, maya, _spoke("happy because sunshine"))
+        _cancel(room)
+        assert not _notices(ther, "Everyone has shared")  # only one kid has shared
+        await room.handle_client_message(protocol.KID, leo, _spoke("nervous about school"))
+        _cancel(room)
+        # manual phase: still in share_feelings, and the therapist got the all-done cue
+        assert room.machine.state.phase is not None
+        assert room.machine.state.phase.phase_id == "share_feelings"
+        return ther
+
+    def _notices(ws: _FakeWS, text: str) -> list[dict]:
+        return [m for m in ws.sent if m["type"] == "notice" and text in m.get("text", "")]
+
+    ther = asyncio.run(scenario())
+    assert _notices(ther, "Everyone has shared")
+
+
 def test_kid_cannot_start(monkeypatch) -> None:
     _install_fakes(monkeypatch)
 
@@ -379,9 +416,7 @@ def test_quick_reply_relays_to_group_and_takes_the_turn(monkeypatch) -> None:
         await _add_kid(room, "Leo")  # kid2
         await room.handle_client_message(protocol.THERAPIST, ther, _START)
         _cancel(room)
-        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # checkin -> warmup
-        _cancel(room)
-        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # warmup -> go_around (kid1's turn)
+        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # checkin -> share_feelings (kid1's turn)
         _cancel(room)
         await room.handle_client_message(protocol.KID, maya, json.dumps({"type": "quick_reply", "text": "😟 nervous"}))
         _cancel(room)
@@ -551,7 +586,7 @@ def test_full_session_review_shows_checkin_checkout_trend(monkeypatch) -> None:
         await room.handle_client_message(protocol.KID, maya, _rate(4))
         await room.handle_client_message(protocol.KID, leo, _rate(2))  # both rated -> warmup
         _cancel(room)
-        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # warmup -> go_around
+        await room.handle_client_message(protocol.THERAPIST, ther, _ADVANCE)  # checkin -> share_feelings
         _cancel(room)
         await room.handle_client_message(protocol.KID, maya, _spoke("happy"))
         _cancel(room)
