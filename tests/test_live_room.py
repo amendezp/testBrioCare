@@ -501,7 +501,98 @@ def test_kid_leaving_notifies_therapist(monkeypatch) -> None:
         return ther
 
     ther = asyncio.run(scenario())
-    assert any(m["type"] == "notice" and "left the session" in m["text"] for m in ther.sent)
+    assert any(m["type"] == "notice" and "lost connection" in m["text"] for m in ther.sent)
+
+
+def test_reconnect_reclaims_identity_mid_session(monkeypatch) -> None:
+    """A dropped kid's seat is kept; presenting the reclaim token rebinds them to the
+    SAME pid — full participant again (their input drives the engine), not an observer."""
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> tuple[_FakeWS, _FakeWS, SessionRoom]:
+        room = _make_room("rc1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")  # kid1
+        await _add_kid(room, "Leo")  # kid2
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)  # -> feelings_checkin
+        _cancel(room)
+        token = room.kids["kid1"].token
+        await room.detach(protocol.KID, maya)  # network drop mid-session
+        assert room.kids["kid1"].ws is None  # seat kept, socket gone
+        snap = _last_snapshot(ther)
+        assert next(p for p in snap["participants"] if p["pid"] == "kid1")["connected"] is False
+
+        ws2 = _FakeWS()
+        await room.attach(protocol.KID, ws2)  # page reconnects: temp seat minted
+        await room.handle_client_message(
+            protocol.KID, ws2, json.dumps({"type": "join", "name": "Maya", "token": token})
+        )
+        return ther, ws2, room
+
+    ther, ws2, room = asyncio.run(scenario())
+    assert room.kids["kid1"].ws is ws2  # original seat rebound to the new socket
+    assert set(room.kids) == {"kid1", "kid2"}  # temp seat discarded
+    ident = [m for m in ws2.sent if m["type"] == "identity"][-1]
+    assert ident["pid"] == "kid1" and ident["name"] == "Maya"
+    assert any(m["type"] == "notice" and "reconnected" in m["text"] for m in ther.sent)
+
+    async def speak() -> None:
+        await room.handle_client_message(protocol.KID, ws2, json.dumps({"type": "rating", "value": 4}))
+
+    asyncio.run(speak())
+    assert room.machine.state.ratings["feelings_checkin"]["kid1"] == 4  # drives the engine again
+
+
+def test_wrong_token_joins_as_new_kid(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> SessionRoom:
+        room = _make_room("rc2")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.detach(protocol.KID, maya)
+        ws2 = _FakeWS()
+        await room.attach(protocol.KID, ws2)
+        await room.handle_client_message(
+            protocol.KID, ws2, json.dumps({"type": "join", "name": "Mallory", "token": "not-the-token"})
+        )
+        return room
+
+    room = asyncio.run(scenario())
+    assert room.kids["kid1"].ws is None  # the kept seat was NOT given away
+    assert any(pid != "kid1" and c.ws is not None for pid, c in room.kids.items())  # stranger = new seat
+
+
+def test_lobby_disconnect_frees_the_seat(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> SessionRoom:
+        room = _make_room("rc3")
+        maya = await _add_kid(room, "Maya")
+        await room.detach(protocol.KID, maya)  # pre-start: no seat to keep
+        return room
+
+    assert asyncio.run(scenario()).kids == {}
+
+
+def test_disconnected_seat_does_not_block_capacity(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> bool:
+        room = _make_room("rc4")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        socks = [await _add_kid(room, f"K{i}") for i in range(room_mod.MAX_KIDS)]
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.detach(protocol.KID, socks[0])  # one kid drops; seat kept but not connected
+        return await room.attach(protocol.KID, _FakeWS())  # their reconnect must not be blocked
+
+    assert asyncio.run(scenario()) is True
 
 
 def test_session_review_is_per_kid_and_transcript_isolated(monkeypatch) -> None:

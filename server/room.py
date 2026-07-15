@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-from dataclasses import dataclass
+import secrets
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
@@ -62,8 +63,11 @@ _SHAREABLE = frozenset(
 class KidConn:
     pid: str
     name: str
-    ws: Any
+    ws: Any  # None while disconnected mid-session (identity kept for reclaim)
     ready: bool = False  # tapped "I'm ready" in the lobby (pre-start only)
+    # Private reclaim token: sent only to this kid; presenting it on a later join
+    # rebinds them to this pid after a refresh or network drop.
+    token: str = field(default_factory=lambda: secrets.token_urlsafe(12))
 
 
 class SessionRoom:
@@ -117,15 +121,16 @@ class SessionRoom:
                 await self._send(ws, protocol.notice_msg("Waiting for kids to join, then press Start."))
             return True
 
-        # kid
-        if len(self.kids) >= MAX_KIDS:
+        # kid — capacity counts CONNECTED kids only, so a disconnected kid's kept seat
+        # never blocks their own reconnect
+        if sum(1 for c in self.kids.values() if c.ws is not None) >= MAX_KIDS:
             return False
         self._kid_seq += 1
         pid = f"kid{self._kid_seq}"
         conn = KidConn(pid=pid, name=f"Kid {self._kid_seq}", ws=ws)
         self.kids[pid] = conn
         await self._send(ws, protocol.room_info_msg(url))
-        await self._send(ws, protocol.identity_msg(pid=pid, name=conn.name))
+        await self._send(ws, protocol.identity_msg(pid=pid, name=conn.name, token=conn.token))
         await self._send(ws, protocol.snapshot_msg(self._snapshot()))
         if self.machine is not None:
             await self._send(ws, protocol.notice_msg("The session is already in progress — you're observing."))
@@ -138,9 +143,15 @@ class SessionRoom:
             return
         conn = self._conn_for_ws(ws)
         if conn is not None:
-            self.kids.pop(conn.pid, None)
             if self.machine is not None and self.machine.state.lifecycle != Lifecycle.ENDED:
-                await self._send_therapist(protocol.notice_msg(f"{conn.name} left the session."))
+                # Mid-session: keep the seat (pid stays in the frozen roster) so the kid
+                # can reclaim their identity and turn when their page reconnects.
+                conn.ws = None
+                await self._send_therapist(
+                    protocol.notice_msg(f"{conn.name} lost connection — their page will rejoin automatically.")
+                )
+            else:
+                self.kids.pop(conn.pid, None)  # lobby / ended: a fresh join is fine
             await self._send_therapist(protocol.snapshot_msg(self._snapshot()))
 
     async def _ensure_room(self) -> str | None:
@@ -165,7 +176,7 @@ class SessionRoom:
         if not self._role_allows(role, msg):
             return
         if isinstance(msg, protocol.JoinMsg):
-            await self._on_join(ws, msg.name)
+            await self._on_join(ws, msg.name, token=msg.token)
             return
         if isinstance(msg, protocol.ReadyMsg):
             await self._on_ready(ws)
@@ -201,14 +212,35 @@ class SessionRoom:
             (protocol.StartMsg, protocol.SpokeMsg, protocol.PrivateNudgeMsg, protocol.OverrideMsg, protocol.EndMsg),
         )
 
-    async def _on_join(self, ws: Any, name: str) -> None:
+    async def _on_join(self, ws: Any, name: str, *, token: str | None = None) -> None:
         conn = self._conn_for_ws(ws)
         if conn is None:
             return
+        if token:
+            for kept in self.kids.values():
+                if kept is not conn and secrets.compare_digest(kept.token, token):
+                    await self._reclaim(kept, conn, ws)
+                    return
         name = name.strip()
         if name:
             conn.name = name[:40]
-        await self._send(ws, protocol.identity_msg(pid=conn.pid, name=conn.name))
+        await self._send(ws, protocol.identity_msg(pid=conn.pid, name=conn.name, token=conn.token))
+        await self._send_therapist(protocol.snapshot_msg(self._snapshot()))
+
+    async def _reclaim(self, kept: KidConn, temp: KidConn, ws: Any) -> None:
+        """Rebind a reconnecting kid to their original seat: same pid, name, and turn.
+        The freshly-minted temp seat is discarded; a lingering old socket is closed."""
+        self.kids.pop(temp.pid, None)
+        old_ws = kept.ws
+        kept.ws = ws
+        if old_ws is not None:  # e.g. a quick refresh raced the old socket's close
+            with contextlib.suppress(Exception):
+                await old_ws.close()
+        await self._send(ws, protocol.identity_msg(pid=kept.pid, name=kept.name, token=kept.token))
+        await self._send(ws, protocol.notice_msg("Welcome back! 💛"))
+        await self._send(ws, protocol.snapshot_msg(self._snapshot()))
+        if self.machine is not None and self.machine.state.lifecycle != Lifecycle.ENDED:
+            await self._send_therapist(protocol.notice_msg(f"{kept.name} reconnected 📡"))
         await self._send_therapist(protocol.snapshot_msg(self._snapshot()))
 
     async def _on_ready(self, ws: Any) -> None:
@@ -665,10 +697,12 @@ class SessionRoom:
                 ps = phase.per_participant.get(pid)
                 en = eng.get(pid, {})
                 last_at = en.get("last_at")
+                kc = self.kids.get(pid)
                 participants.append(
                     {
                         "pid": pid,
                         "name": name,
+                        "connected": kc is not None and kc.ws is not None,
                         "spoke_count": ps.spoke_count if ps else 0,
                         "passed": ps.passed if ps else False,
                         "skipped": ps.skipped if ps else False,

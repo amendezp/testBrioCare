@@ -334,7 +334,7 @@ function renderState(st) {
     return `<div class="erow ${turn ? "turn" : ""}">
       <span class="dot" style="background:${colorForPid(p.pid)}"></span>
       <div>
-        <span class="ename">${turn ? "▶ " : ""}${esc(p.name)}</span> <span class="chip ${status[0]}">${status[1]}</span>
+        <span class="ename">${turn ? "▶ " : ""}${esc(p.name)}</span> <span class="chip ${status[0]}">${status[1]}</span>${p.connected === false ? ' <span class="chip quiet">📡 reconnecting…</span>' : ''}
         <div class="meta">${p.utterances || 0} shares · ${p.words || 0} words · 🤝 ${p.spontaneous || 0} spontaneous · ${p.invites_received || 0} nudges · ${fmtAgo(p.last_spoke_ago)}</div>
         ${trend}
         <div class="bar"><i style="width:${share}%;background:${colorForPid(p.pid)}"></i></div>

@@ -26,10 +26,13 @@ class _ClientMsg(BaseModel):
 
 
 class JoinMsg(_ClientMsg):
-    """A kid announces presence with a display name (added to the lobby)."""
+    """A kid announces presence with a display name (added to the lobby). ``token``
+    is the private reclaim token from a previous connection — presenting it after a
+    refresh/drop rebinds the kid to their original identity and turn."""
 
     type: Literal["join"] = "join"
     name: str
+    token: str | None = None
 
 
 class StartMsg(_ClientMsg):
@@ -123,9 +126,13 @@ def room_info_msg(url: str | None) -> dict:
     return {"type": "room_info", "url": url}
 
 
-def identity_msg(*, pid: str, name: str) -> dict:
-    """Tell a kid its assigned participant id so its UI can detect 'your turn'."""
-    return {"type": "identity", "pid": pid, "name": name}
+def identity_msg(*, pid: str, name: str, token: str | None = None) -> dict:
+    """Tell a kid its assigned participant id so its UI can detect 'your turn'.
+    ``token`` is the private reclaim token the kid stores for reconnecting."""
+    msg = {"type": "identity", "pid": pid, "name": name}
+    if token:
+        msg["token"] = token
+    return msg
 
 
 def transcript_msg(*, role: str, name: str, text: str, at: float, pid: str | None = None) -> dict:
