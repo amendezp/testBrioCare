@@ -131,6 +131,7 @@
       <button id="btn-start" disabled style="width:100%;margin-bottom:9px">Start session</button>
       <div class="controls">
         <button id="btn-mic" class="ghost">🎤 Mic off</button>
+        <button id="btn-cam" class="ghost" disabled>🎥 Cam</button>
         <button class="ghost" data-cmd="advance_phase">Next activity</button>
         <button class="ghost" data-cmd="pause">Pause</button>
         <button class="ghost" data-cmd="resume">Resume</button>
@@ -225,6 +226,7 @@ function mountVideo(url) {
   $("grid").innerHTML = "";
   call = window.DailyIframe.createCallObject();
   ["participant-joined","participant-updated","participant-left","track-started","track-stopped","joined-meeting"].forEach(ev => call.on(ev, renderGrid));
+  ["joined-meeting","participant-updated"].forEach(ev => call.on(ev, syncSelf));
   call.join({ url, userName: "Therapist" }).catch(() => { $("grid").innerHTML = '<div class="vid-off">Could not join the video.</div>'; });
 }
 function createTile(sid, local) {
@@ -410,21 +412,47 @@ $("btn-inject").onclick = () => { const t = $("inject").value.trim(); if (t) { o
 $("btn-copy").onclick = () => { if (lastNotes) navigator.clipboard.writeText(lastNotes); };
 document.querySelectorAll("button[data-cmd]").forEach(b => b.onclick = () => override(b.dataset.cmd));
 
-/* therapist mic: controls the call audio + transcription together */
+/* therapist media controls: mic (call audio + transcription in lockstep) and camera.
+   Button state is synced FROM Daily's actual local participant state, so it can never
+   lie about whether the therapist is being seen or heard. */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (!SR) $("b-nosr").style.display = "";  // Web Speech is Chrome/Edge only
-let rec, micOn = false;
+let rec, micOn = false, camOn = false;
 function startSR() { if (!SR || rec) return; rec = new SR(); rec.lang="en-US"; rec.continuous=true; rec.interimResults=false;
   rec.onresult = (ev)=>{ for (let i=ev.resultIndex;i<ev.results.length;i++) if (ev.results[i].isFinal){ const t=ev.results[i][0].transcript.trim(); if (t) send({type:"spoke",text:t}); } };
   rec.onend = ()=>{ if (micOn && rec){ try{ rec.start(); }catch(e){} } }; try{ rec.start(); }catch(e){} }
 function stopSR() { const r = rec; rec = null; if (r){ try{ r.stop(); }catch(e){} } }
+function paintMic() {
+  $("btn-mic").textContent = micOn ? "🎤 Mic on" : "🎤 Mic off";
+  $("btn-mic").className = micOn ? "on" : "ghost";
+}
+function paintCam() {
+  $("btn-cam").textContent = camOn ? "🎥 Cam on" : "🎥 Cam off";
+  $("btn-cam").className = camOn ? "on" : "ghost";
+}
 $("btn-mic").onclick = () => {
   micOn = !micOn;
   if (call) { try { call.setLocalAudio(micOn); } catch (e) {} }
   if (micOn) startSR(); else stopSR();
-  $("btn-mic").textContent = micOn ? "🎤 Mic on" : "🎤 Mic off";
-  $("btn-mic").className = micOn ? "on" : "ghost";
+  paintMic();
 };
+$("btn-cam").onclick = () => {
+  if (!call) return;
+  camOn = !camOn;
+  try { call.setLocalVideo(camOn); } catch (e) {}
+  paintCam();
+};
+function syncSelf() {
+  // mirror Daily's real local state onto the buttons (covers permission failures,
+  // device changes, and the room's join-muted default)
+  if (!call) return;
+  const p = call.participants && call.participants().local;
+  if (!p) return;
+  if (!!p.audio !== micOn) { micOn = !!p.audio; if (micOn) startSR(); else stopSR(); }
+  camOn = !!p.video;
+  $("btn-cam").disabled = false;
+  paintMic(); paintCam();
+}
 
 connect();
 </script>
