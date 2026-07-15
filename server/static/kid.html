@@ -198,6 +198,11 @@
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const room = (params.get("room") || "demo").trim() || "demo";
+// Identity survives refreshes/drops in THIS tab: the private reclaim token lets the
+// server rebind us to the same seat (same name, same turn). Cleared on Leave/session end.
+const IDKEY = "brio-id-" + room;
+function savedIdentity() { try { return JSON.parse(sessionStorage.getItem(IDKEY) || "null"); } catch (e) { return null; } }
+let leftForGood = false, retryMs = 1000;
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 if (!SR) $("nosr").classList.add("show");  // Web Speech is Chrome/Edge only
 
@@ -299,6 +304,8 @@ function leaveCall() {
   }
 }
 $("leave").onclick = () => {
+  leftForGood = true;                // deliberate exit: no auto-reconnect
+  try { sessionStorage.removeItem(IDKEY); } catch (e) {}
   showEndScreen("Bye for now! 👋", "Great job today — you can close this tab.");
   leaveCall();                       // camera + mic off and out of the video call
   try { if (ws) ws.close(); } catch (e) {}  // leaving disconnects this child; the group continues
@@ -307,19 +314,35 @@ $("leave").onclick = () => {
 function connect(name) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${proto}://${location.host}/ws/${encodeURIComponent(room)}/kid`);
-  ws.onopen = () => { $("banner").textContent = "Getting ready… 🌱"; ws.send(JSON.stringify({ type: "join", name })); };
-  ws.onclose = () => { $("mic-sub").textContent = "Disconnected — refresh to come back."; };
+  ws.onopen = () => {
+    retryMs = 1000;
+    $("banner").textContent = "Getting ready… 🌱";
+    const saved = savedIdentity();
+    ws.send(JSON.stringify({ type: "join", name, token: saved ? saved.token : undefined }));
+  };
+  ws.onclose = () => {
+    if (leftForGood) return;
+    if (!started) amReady = false;  // a lobby seat isn't kept — re-tap ready after rejoin
+    $("banner").className = ""; $("banner").textContent = "Reconnecting… 🔄";
+    $("mic-sub").textContent = "Hold on — finding the circle again.";
+    setTimeout(() => { if (!leftForGood) connect(myName); }, retryMs);
+    retryMs = Math.min(retryMs * 2, 10000);
+  };
   ws.onmessage = (e) => handle(JSON.parse(e.data));
 }
 
 function handle(msg) {
   if (msg.type === "room_info") mountVideo(msg.url);
-  else if (msg.type === "identity") myPid = msg.pid;
+  else if (msg.type === "identity") {
+    myPid = msg.pid;
+    if (msg.name && msg.name !== "Guest" && !/^Kid \d+$/.test(msg.name)) myName = msg.name;
+    if (msg.token) { try { sessionStorage.setItem(IDKEY, JSON.stringify({ token: msg.token, name: myName })); } catch (e) {} }
+  }
   else if (msg.type === "assistant") { if (phaseMode !== "rating") { $("bubble").textContent = msg.text; $("bubble").classList.add("show"); } }
   else if (msg.type === "request_rating") showFeelings(msg.scale, msg.prompt);
   else if (msg.type === "private_prompt") { $("private-bubble").textContent = msg.text; $("private-bubble").classList.add("show"); }
   else if (msg.type === "snapshot") applySnapshot(msg.state);
-  else if (msg.type === "session_over") { started = false; leaveCall(); hideFeelings(); $("quick-replies").classList.remove("show"); $("mic").disabled = true; showEndScreen("All done — great job! 🌟", "Your therapist wrapped up the circle."); }
+  else if (msg.type === "session_over") { started = false; leftForGood = true; try { sessionStorage.removeItem(IDKEY); } catch (e) {} leaveCall(); hideFeelings(); $("quick-replies").classList.remove("show"); $("mic").disabled = true; showEndScreen("All done — great job! 🌟", "Your therapist wrapped up the circle."); }
   else if (msg.type === "notice") $("mic-sub").textContent = msg.text;
 }
 
@@ -396,7 +419,16 @@ function startSR() {
 }
 function stopSR() { const r = rec; rec = null; if (r) { try { r.stop(); } catch (e) {} } }
 
-$("name").focus();
+// A refresh mid-session skips the gate: reconnect straight away with the saved identity.
+const _saved = savedIdentity();
+if (_saved && _saved.name) {
+  myName = _saved.name;
+  $("gate").style.display = "none";
+  $("leave").classList.add("show");
+  connect(myName);
+} else {
+  $("name").focus();
+}
 </script>
 </body>
 </html>
