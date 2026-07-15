@@ -176,6 +176,7 @@
   <!-- SESSION -->
   <div class="topline"><div class="bird-sm" id="bird-sm"></div><div id="banner">Connecting…</div></div>
   <div id="nosr">⚠️ This browser can't hear you — please use Chrome so the circle can include you.</div>
+  <button id="ready-btn" class="big-btn" style="display:none;width:min(100%,420px)">I'm ready! 🙌</button>
   <div id="private-bubble"></div>
   <div id="bubble"></div>
   <div id="feelings">
@@ -320,12 +321,21 @@ function handle(msg) {
   else if (msg.type === "notice") $("mic-sub").textContent = msg.text;
 }
 
+let amReady = false;
+$("ready-btn").onclick = () => {
+  amReady = true;
+  wsSend({ type: "ready" });
+  $("ready-btn").style.display = "none";
+  $("banner").textContent = "You're ready! ✨";
+};
+
 function applySnapshot(st) {
   started = st.lifecycle !== "not_started" && st.lifecycle !== "ended";
   myTurn = !!(st.current_turn && st.current_turn === myPid);
   phaseMode = st.phase_mode || null;
   $("mic").disabled = !started;
-  if (!started) { $("banner").className = ""; $("banner").textContent = "Getting ready… 🌱"; }
+  $("ready-btn").style.display = (!started && st.lifecycle === "not_started" && !amReady) ? "" : "none";
+  if (!started) { $("banner").className = ""; $("banner").textContent = amReady ? "You're ready! ✨" : "Getting ready… 🌱"; }
   else if (phaseMode === "rating") { $("banner").className = ""; $("banner").textContent = "How are you feeling? 🌡️"; }
   else if (myTurn) { $("banner").className = "turn"; $("banner").textContent = "It's your turn! ✨"; }
   else { $("banner").className = ""; $("banner").textContent = st.current_turn_name ? `${st.current_turn_name}'s turn` : "We're listening together"; }

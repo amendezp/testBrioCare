@@ -289,7 +289,9 @@ function renderState(st) {
   const startBtn = $("btn-start");
   const lobby = st.lobby || [];
   startBtn.disabled = started || lobby.length === 0;
-  startBtn.textContent = started ? "Session running" : (lobby.length ? `Start session (${lobby.length} joined)` : "Start session");
+  const readyCount = lobby.filter(p => p.ready).length;
+  startBtn.textContent = started ? "Session running"
+    : (lobby.length ? `Start session (${readyCount}/${lobby.length} ready)` : "Start session");
 
   // group-activity launch buttons — enabled once the session is running
   const ACT_EMOJI = { act_feelings:"😀", act_compliments:"💛", act_brave:"🦁", act_thermometer:"🌡️", act_roleplay:"🎭" };
@@ -303,7 +305,7 @@ function renderState(st) {
   const eng = $("eng");
   if (!started) {
     eng.innerHTML = lobby.length ? lobby.map(p =>
-      `<div class="erow"><span class="dot" style="background:${colorForPid(p.pid)}"></span><span class="ename">${esc(p.name)}</span><span class="estats">in lobby</span></div>`).join("")
+      `<div class="erow"><span class="dot" style="background:${colorForPid(p.pid)}"></span><span class="ename">${esc(p.name)}</span><span class="estats">${p.ready ? '<span class="chip active">Ready ✓</span>' : '<span class="chip none">getting ready…</span>'}</span></div>`).join("")
       : `<div style="text-align:center;padding:10px 0"><div style="width:84px;margin:0 auto 8px">${THERA_BUDDY}</div><div class="status">Waiting for kids to join the circle…</div></div>`;
     return;
   }
