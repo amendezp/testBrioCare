@@ -315,6 +315,47 @@ def test_friendly_cues_filter_noise(monkeypatch) -> None:
     assert cues[0]["level"] == "action" and "Maya" in cues[0]["text"]
 
 
+def test_lobby_readiness_flow(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+    _READY = '{"type":"ready"}'
+
+    async def scenario() -> tuple[_FakeWS, SessionRoom]:
+        room = _make_room("rdy1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        leo = await _add_kid(room, "Leo")
+        await room.handle_client_message(protocol.KID, maya, _READY)
+        # one ready: lobby reflects it, no "everyone" notice yet
+        snap = _last_snapshot(ther)
+        assert [(k["name"], k["ready"]) for k in snap["lobby"]] == [("Maya", True), ("Leo", False)]
+        assert not any("Everyone's ready" in m.get("text", "") for m in ther.sent if m["type"] == "notice")
+        await room.handle_client_message(protocol.KID, leo, _READY)
+        return ther, room
+
+    ther, _room = asyncio.run(scenario())
+    snap = _last_snapshot(ther)
+    assert all(k["ready"] for k in snap["lobby"])  # both ready in the lobby
+    assert any("Everyone's ready" in m.get("text", "") for m in ther.sent if m["type"] == "notice")
+
+
+def test_ready_ignored_once_session_started(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> SessionRoom:
+        room = _make_room("rdy2")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, '{"type":"ready"}')  # no-op mid-session
+        return room
+
+    room = asyncio.run(scenario())
+    assert next(iter(room.kids.values())).ready is False
+
+
 def test_kid_cannot_start(monkeypatch) -> None:
     _install_fakes(monkeypatch)
 

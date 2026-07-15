@@ -41,6 +41,12 @@ class SpokeMsg(_ClientMsg):
     text: str
 
 
+class ReadyMsg(_ClientMsg):
+    """A kid signals from the lobby that they're ready for the session to start."""
+
+    type: Literal["ready"] = "ready"
+
+
 class QuickReplyMsg(_ClientMsg):
     """A kid taps a feeling chip instead of speaking; auto-relayed to the group."""
 
@@ -73,7 +79,7 @@ class EndMsg(_ClientMsg):
 
 
 ClientMessage = Annotated[
-    JoinMsg | StartMsg | SpokeMsg | QuickReplyMsg | RatingMsg | PrivateNudgeMsg | OverrideMsg | EndMsg,
+    JoinMsg | ReadyMsg | StartMsg | SpokeMsg | QuickReplyMsg | RatingMsg | PrivateNudgeMsg | OverrideMsg | EndMsg,
     Field(discriminator="type"),
 ]
 

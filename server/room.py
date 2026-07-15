@@ -62,6 +62,7 @@ class KidConn:
     pid: str
     name: str
     ws: Any
+    ready: bool = False  # tapped "I'm ready" in the lobby (pre-start only)
 
 
 class SessionRoom:
@@ -163,6 +164,9 @@ class SessionRoom:
         if isinstance(msg, protocol.JoinMsg):
             await self._on_join(ws, msg.name)
             return
+        if isinstance(msg, protocol.ReadyMsg):
+            await self._on_ready(ws)
+            return
         if isinstance(msg, protocol.SpokeMsg):
             await self._on_spoke(role, ws, msg.text)
             return
@@ -187,7 +191,7 @@ class SessionRoom:
             # session (they leave by closing their own tab; the therapist ends the session).
             return isinstance(
                 msg,
-                (protocol.JoinMsg, protocol.SpokeMsg, protocol.QuickReplyMsg, protocol.RatingMsg),
+                (protocol.JoinMsg, protocol.ReadyMsg, protocol.SpokeMsg, protocol.QuickReplyMsg, protocol.RatingMsg),
             )
         return isinstance(
             msg,
@@ -203,6 +207,17 @@ class SessionRoom:
             conn.name = name[:40]
         await self._send(ws, protocol.identity_msg(pid=conn.pid, name=conn.name))
         await self._send_therapist(protocol.snapshot_msg(self._snapshot()))
+
+    async def _on_ready(self, ws: Any) -> None:
+        """A kid tapped "I'm ready" in the lobby. Pre-start only — informational for the
+        therapist (Start is never gated on it; a shy kid may never tap)."""
+        conn = self._conn_for_ws(ws)
+        if conn is None or self.machine is not None:
+            return
+        conn.ready = True
+        await self._broadcast(protocol.snapshot_msg(self._snapshot()))
+        if self.kids and all(c.ready for c in self.kids.values()):
+            await self._send_therapist(protocol.notice_msg("Everyone's ready! 🎉 Press Start when you are."))
 
     async def _on_start(self) -> None:
         if not self.kids:
@@ -568,7 +583,7 @@ class SessionRoom:
         return eng
 
     def _snapshot(self) -> dict:
-        lobby = [{"pid": c.pid, "name": c.name} for c in self.kids.values()]
+        lobby = [{"pid": c.pid, "name": c.name, "ready": c.ready} for c in self.kids.values()]
         # The linear session is the non-menu_only phases; menu_only are on-demand activities.
         linear_ids = [p.id for p in self.script.phases if not p.menu_only]
         header = {
