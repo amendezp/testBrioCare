@@ -269,12 +269,27 @@ class SessionMachine:
         if cmd == OverrideCommand.ADVANCE_PHASE:
             if self.state.lifecycle == Lifecycle.IN_PHASE:
                 actions.extend(self._complete_phase(now))
+            elif (
+                self.state.lifecycle == Lifecycle.BETWEEN_PHASES
+                and self.state.pending_linear_index is not None
+            ):
+                # Resume the linear script where the clinician left it for an activity.
+                idx = self.state.pending_linear_index
+                self.state.pending_linear_index = None
+                actions.extend(self._enter_phase(idx, now))
         elif cmd == OverrideCommand.GOTO_PHASE:
             target = args.get("phase_id", "")
             try:
                 idx = self.script.phase_index(target)
             except KeyError:
                 return [NoOp(at=now, reason=f"no such phase {target!r}")]
+            # Jumping from a linear phase into an on-demand activity: remember where the
+            # linear script resumes (the next linear phase after the one we're leaving).
+            if self.script.phases[idx].menu_only:
+                if st is not None and not self._current_phase().menu_only:
+                    self.state.pending_linear_index = self._next_linear_index(self.state.phase_index)
+            else:
+                self.state.pending_linear_index = None  # explicit jump back into the script
             if st is not None:
                 actions.append(AdvancePhase(at=now, from_phase=st.phase_id, to_phase=target))
             actions.extend(self._enter_phase(idx, now))

@@ -92,9 +92,11 @@
               padding:clamp(14px,2.4vh,24px) 20px; box-shadow:0 12px 30px rgba(34,100,104,.12); }
   #feelings.show { display:flex; }
   #feelings-q { font-size:clamp(17px,2.5vh,22px); font-weight:800; color:var(--teal-deep); }
-  #feelings-row { display:flex; gap:clamp(6px,1.4vw,10px); flex-wrap:wrap; justify-content:center; }
-  .feel { width:clamp(54px,11vh,74px); height:clamp(54px,11vh,74px); border-radius:50%; border:2px solid #eef6f4;
-          background:#fbfdfc; font-size:clamp(26px,5.5vh,36px); display:flex; align-items:center; justify-content:center;
+  /* One row always: size faces by BOTH viewport width and height so 5 fit without
+     wrapping on phones or scrolling on tablets. */
+  #feelings-row { display:flex; gap:clamp(4px,1.2vw,10px); flex-wrap:nowrap; justify-content:center; width:100%; }
+  .feel { width:min(14vw,11vh,74px); height:min(14vw,11vh,74px); flex:0 0 auto; border-radius:50%; border:2px solid #eef6f4;
+          background:#fbfdfc; font-size:min(7vw,5.5vh,36px); display:flex; align-items:center; justify-content:center;
           transition:transform .08s, border-color .15s; }
   .feel:active { transform:scale(.9); border-color:var(--teal-light); }
   #feelings-thanks { display:none; font-size:clamp(17px,2.4vh,21px); font-weight:800; color:var(--teal); }
@@ -184,13 +186,13 @@
     <div id="feelings-row"></div>
     <div id="feelings-thanks">Thanks for sharing! 🌟</div>
   </div>
+  <div id="quick-replies"><div id="qr-label">…or tap how you feel:</div></div>
   <div id="video"><div class="vid-off">Connecting video…</div></div>
   <div id="mic-wrap">
     <button id="mic" class="muted" disabled aria-label="microphone"></button>
     <div id="mic-label" class="muted">Tap to talk</div>
     <div id="mic-sub">When this is green, everyone can hear you.</div>
   </div>
-  <div id="quick-replies"><div id="qr-label">…or tap how you feel:</div></div>
 
 <script>
 const $ = (id) => document.getElementById(id);
@@ -339,6 +341,11 @@ function applySnapshot(st) {
   else if (phaseMode === "rating") { $("banner").className = ""; $("banner").textContent = "How are you feeling? 🌡️"; }
   else if (myTurn) { $("banner").className = "turn"; $("banner").textContent = "It's your turn! ✨"; }
   else { $("banner").className = ""; $("banner").textContent = st.current_turn_name ? `${st.current_turn_name}'s turn` : "We're listening together"; }
+  // Stale-proof: every snapshot carries the current shared prompt, so this screen can
+  // never keep showing a previous activity's instructions (e.g. after a network blip).
+  if (started && phaseMode !== "rating" && st.current_prompt && !st.current_prompt.startsWith("🌡️")) {
+    if ($("bubble").textContent !== st.current_prompt) { $("bubble").textContent = st.current_prompt; $("bubble").classList.add("show"); }
+  }
   // The non-voice chips are available during a talking activity; the thermometer owns the rating phase.
   $("quick-replies").classList.toggle("show", started && phaseMode !== "rating");
   if (phaseMode === "rating") $("bubble").classList.remove("show");  // thermometer prompt only — no duplicate

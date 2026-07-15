@@ -82,6 +82,8 @@
   .notes { max-height:360px; overflow:auto; } .notes h3 { font-size:14px; margin:12px 0 4px; color:var(--teal-deep); }
   .notes ul { margin:4px 0 4px 18px; padding:0; } .notes p { margin:4px 0; } .notes em { color:var(--mut); }
   .status { color:var(--mut); font-size:12px; } .final-tag { color:#1e9e5a; font-size:11px; font-weight:800; }
+  #kidscreen.live { background:#f2faf7; border:1px solid var(--line); border-left:4px solid var(--teal);
+                    border-radius:10px; padding:10px 12px; font-size:14px; font-weight:600; color:var(--teal-deep); }
 
   /* end-of-session review lobby */
   #review { position:fixed; inset:0; z-index:30; background:var(--bg); overflow:auto; display:none; padding:18px; }
@@ -153,6 +155,10 @@
 
   <div class="col">
     <section class="card">
+      <h2>On the kids' screens</h2>
+      <div id="kidscreen" class="status">Nothing shared yet — the current prompt will mirror here.</div>
+    </section>
+    <section class="card">
       <h2>Co-pilot cues</h2>
       <div class="cues" id="cues"><div class="status">Guidance appears here — whose turn, who's quiet, when to wrap.</div></div>
     </section>
@@ -210,6 +216,8 @@ function handle(m) {
     case "room_info": mountVideo(m.url); break;
     case "snapshot": snapshot = m.state; renderState(m.state); break;
     case "cues": m.cues.forEach(addCue); break;
+    case "assistant": setKidScreen(m.text); break;
+    case "request_rating": setKidScreen("🌡️ " + m.prompt); break;
     case "transcript": addTranscript(m); break;
     case "notes": renderNotes(m.markdown, m.final); break;
     case "session_review": renderReview(m); break;
@@ -265,6 +273,7 @@ function renderGrid() {
 
 /* ---------- session header + engagement ---------- */
 function fmtAgo(s) { if (s == null) return "—"; if (s < 10) return "just now"; if (s < 60) return Math.round(s) + "s ago"; return Math.round(s/60) + "m ago"; }
+function setKidScreen(t) { if (!t) return; const el = $("kidscreen"); el.textContent = t; el.className = "live"; }
 function renderState(st) {
   pidByName = {};
   (st.participants || []).concat(st.lobby || []).forEach(p => { if (p.name) pidByName[p.name] = p.pid; });
@@ -283,6 +292,7 @@ function renderState(st) {
     $("b-start").textContent = d.toLocaleTimeString(undefined, { hour:"numeric", minute:"2-digit" });
   }
   elapsedBase = st.elapsed_seconds || 0; elapsedSince = Date.now();
+  setKidScreen(st.current_prompt);  // mirror of the kids' shared bubble (reconnect-safe)
 
   // engagement rows
   const started = life !== "not_started";

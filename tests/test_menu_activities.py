@@ -47,3 +47,39 @@ def test_can_launch_another_activity_from_ready(driver_factory) -> None:
     d.override(OverrideCommand.GOTO_PHASE, at=8, phase_id="a2")  # launch the next from rest
     assert d.m.state.phase is not None and d.m.state.phase.phase_id == "a2"
     assert d.m.state.lifecycle == Lifecycle.IN_PHASE
+
+
+def test_manual_phase_only_advances_by_therapist(driver_factory) -> None:
+    """advance_when: manual — everyone speaking and any amount of time must NOT complete
+    the phase; only the clinician's advance does."""
+    p = make_phase(
+        "share", order=TurnOrder.ROUND_ROBIN, require_all_speak=True, advance_when=AdvanceWhen.MANUAL
+    )
+    tail = make_phase("closing_phase", order=TurnOrder.POPCORN, max_phase_seconds=999, advance_when=AdvanceWhen.TIMER)
+    d = driver_factory(p, tail)
+    d.start(at=0)
+    for i, pid in enumerate(["kid1", "kid2", "kid3", "kid4"]):
+        d.speak(pid, "sharing", at=1 + i)
+    assert d.m.state.phase is not None and d.m.state.phase.phase_id == "share"  # all spoke, still here
+    d.tick(at=10_000)
+    assert d.m.state.phase is not None and d.m.state.phase.phase_id == "share"  # time doesn't advance it
+    out = d.override(OverrideCommand.ADVANCE_PHASE, at=10_001)
+    assert "advance_phase" in kinds(out)
+    assert d.m.state.phase is not None and d.m.state.phase.phase_id == "closing_phase"
+
+
+def test_advance_from_ready_resumes_linear_script(driver_factory) -> None:
+    """Jumping into an activity mid-script no longer abandons it: when the activity ends,
+    the clinician's next advance resumes the linear script where it left off."""
+    a = make_phase("share", order=TurnOrder.POPCORN, advance_when=AdvanceWhen.MANUAL)
+    act = _menu("act_x")
+    b = make_phase("checkout_phase", order=TurnOrder.POPCORN, max_phase_seconds=999, advance_when=AdvanceWhen.TIMER)
+    d = driver_factory(a, act, b)
+    d.start(at=0)  # in "share"
+    d.override(OverrideCommand.GOTO_PHASE, at=1, phase_id="act_x")  # remembers resume point
+    assert d.m.state.pending_linear_index is not None
+    d.tick(at=7)  # activity timer -> ready state
+    assert d.m.state.lifecycle == Lifecycle.BETWEEN_PHASES and d.m.state.phase is None
+    d.override(OverrideCommand.ADVANCE_PHASE, at=8)  # resume the script
+    assert d.m.state.phase is not None and d.m.state.phase.phase_id == "checkout_phase"
+    assert d.m.state.pending_linear_index is None

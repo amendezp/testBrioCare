@@ -63,6 +63,10 @@ class SessionState(BaseModel):
     contributions: dict[str, int] = Field(default_factory=dict)  # non-pass utterances per pid
     spontaneous: dict[str, int] = Field(default_factory=dict)  # unprompted / out-of-turn shares per pid
     ratings: dict[str, dict[str, int]] = Field(default_factory=dict)  # phase_id -> {pid: rating}
+    # Where the linear script resumes after an on-demand (menu_only) activity: set when
+    # the clinician jumps from a linear phase into an activity, consumed by the next
+    # "advance" from the ready state.
+    pending_linear_index: int | None = None
     history: list[dict[str, Any]] = Field(default_factory=list)
 
     def record(self, at: float, type_: str, model: BaseModel) -> None:

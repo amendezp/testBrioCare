@@ -2,9 +2,11 @@ schema_version: 1
 id: group_checkin
 title: Group Feelings Circle
 description: >
-  A short group check-in the therapist guides: a warm-up, then a go-around where each
-  child shares how they're feeling (round-robin, everyone gets a turn, quiet kids are
-  gently invited), then a brief open reflection. Timers are short so the demo moves.
+  A clinician-led group check-in. The linear arc is short and fully therapist-paced:
+  a tap check-in, a go-around where each child says more about how they feel and why,
+  and a closing tap check-out. Everything else is an on-demand activity the therapist
+  launches by button. Conversation phases never auto-advance — the clinician clicks
+  Next activity (a cue appears when everyone has shared).
 age_range: [7, 11]
 recommended_group_size: [1, 6]
 
@@ -28,7 +30,7 @@ phases:
         Before we start, tap the face that shows how you're feeling right now.
         There are no wrong answers.
     transition_prompt:
-      text: Thanks for checking in, everyone. Let's warm up together.
+      text: Thanks for checking in, everyone.
     turn_policy:
       order: open
     participation:
@@ -40,40 +42,14 @@ phases:
       advance_when: timer
     facilitator_notes: >
       A quick feelings check-in. Each child taps a face from 1 (low) to 5 (great).
-      The activity advances as soon as everyone has tapped, or when the timer runs out.
+      Advances the moment everyone has tapped, or after the 60s backstop.
 
-  - id: warmup
-    title: Warm-up
+  - id: share_feelings
+    title: Tell us more
     opening_prompt:
       text: >
-        Let's warm up. I'll name a feeling, and if you want, you can call out a time you
-        felt that way. "Excited" — when have you felt excited?
-      addressed_to: group
-    transition_prompt:
-      text: Nice warm-up, everyone. Now let's go around the circle.
-    acknowledge_speakers: false
-    turn_policy:
-      order: popcorn
-      allow_pass: true
-      one_turn_per_participant: false
-    participation:
-      require_all_speak: false
-      quiet_participant_strategy: skip
-    pacing:
-      min_phase_seconds: 0
-      max_phase_seconds: 40
-      wrapup_warning_seconds: 12
-      advance_when: timer
-    facilitator_notes: >
-      A whole-group warm-up with children aged 7-11. Light and encouraging; no pressure
-      for anyone to speak yet.
-
-  - id: go_around
-    title: Go around the circle
-    opening_prompt:
-      text: >
-        Now let's go around the circle. When it's your turn, tell us one word or a short
-        sentence about how you're feeling right now. You can always say "pass."
+        Now let's go around the circle. When it's your turn, tell us a bit more —
+        how are you feeling today, and why? You can always say "pass."
       addressed_to: current_turn
     transition_prompt:
       text: Thank you, everyone, for sharing how you feel.
@@ -92,38 +68,12 @@ phases:
       honor_pass: true
     pacing:
       min_phase_seconds: 0
-      max_phase_seconds: 150
-      wrapup_warning_seconds: 25
-      advance_when: all_spoke_or_timer
+      advance_when: manual
     facilitator_notes: >
-      A round-robin feelings check-in with a small group of children. Validate each
+      A round-robin feelings go-around with a small group of children. Validate each
       child's feeling warmly and briefly; gently invite quieter children when prompted.
-
-  - id: reflect
-    title: Open reflection
-    opening_prompt:
-      text: >
-        Before we wrap up — does anyone want to add anything, or say something about what
-        someone else shared? It's okay if not.
-      addressed_to: group
-    transition_prompt:
-      text: Okay, let's wrap up our circle.
-    acknowledge_speakers: true
-    turn_policy:
-      order: open
-      allow_pass: true
-      one_turn_per_participant: false
-    participation:
-      require_all_speak: false
-      quiet_participant_strategy: skip
-    pacing:
-      min_phase_seconds: 0
-      max_phase_seconds: 45
-      wrapup_warning_seconds: 15
-      advance_when: timer
-    facilitator_notes: >
-      Optional open reflection for the group. Encouraging and brief; never push a child
-      who has nothing to add.
+      This phase never advances on its own — the therapist presses Next activity
+      (a cue appears once every child has shared).
 
   - id: feelings_checkout
     title: One last check-in
@@ -148,8 +98,38 @@ phases:
       see how each child's mood shifted across the session.
 
   # --- On-demand activity library (menu_only) ----------------------------------
-  # Evidence-based group activities the therapist launches by button at any time.
-  # They are skipped by linear auto-advance and return to a ready state when done.
+  # Launched by button at any time; the linear script resumes with Next activity.
+  # Turn-based activities are therapist-paced (advance_when: manual).
+
+  - id: act_feeling_stories
+    title: Feeling stories
+    menu_only: true
+    opening_prompt:
+      text: >
+        Let's tell some feeling stories. I'll name a feeling — when it's your turn,
+        tell us a short story about a time YOU felt that way.
+    transition_prompt:
+      text: Those were wonderful stories. Thank you, everyone.
+    acknowledge_speakers: true
+    turn_policy:
+      order: round_robin
+      per_turn_seconds: 30
+      per_turn_hard_seconds: 60
+      allow_pass: true
+      one_turn_per_participant: true
+    participation:
+      require_all_speak: true
+      invite_quiet_after_seconds: 18
+      max_invites_per_participant: 2
+      quiet_participant_strategy: direct_invite
+    pacing:
+      min_phase_seconds: 0
+      advance_when: manual
+    facilitator_notes: >
+      The therapist names a feeling out loud (or shares one with the prompt box); each
+      child takes a turn telling a short story about a time they felt that way —
+      emotion-identification storytelling from group CBT. The therapist paces it and
+      presses Next activity when the round feels complete.
 
   - id: act_feelings
     title: Feeling naming
@@ -174,9 +154,7 @@ phases:
       quiet_participant_strategy: direct_invite
     pacing:
       min_phase_seconds: 0
-      max_phase_seconds: 180
-      wrapup_warning_seconds: 30
-      advance_when: all_spoke_or_timer
+      advance_when: manual
     facilitator_notes: >
       Emotion-identification go-around (the "Feelings" step in Coping Cat / FRIENDS-style
       CBT). Validate each child's feeling warmly and briefly; gently invite quieter kids.
@@ -204,9 +182,7 @@ phases:
       quiet_participant_strategy: direct_invite
     pacing:
       min_phase_seconds: 0
-      max_phase_seconds: 180
-      wrapup_warning_seconds: 30
-      advance_when: all_spoke_or_timer
+      advance_when: manual
     facilitator_notes: >
       Compliment-giving round — builds positive peer interaction and reinforcement, a
       core social-skills-group activity. Keep it sincere and specific.
@@ -234,9 +210,7 @@ phases:
       quiet_participant_strategy: direct_invite
     pacing:
       min_phase_seconds: 0
-      max_phase_seconds: 200
-      wrapup_warning_seconds: 30
-      advance_when: all_spoke_or_timer
+      advance_when: manual
     facilitator_notes: >
       "Brave step" sharing — the exposure / FEAR-plan idea from Coping Cat: name a small
       brave action. Celebrate every attempt; never push a child who passes.
@@ -283,9 +257,7 @@ phases:
       quiet_participant_strategy: skip
     pacing:
       min_phase_seconds: 0
-      max_phase_seconds: 240
-      wrapup_warning_seconds: 40
-      advance_when: timer
+      advance_when: manual
     facilitator_notes: >
       Therapist-led role-play of a social situation (greetings, joining a game, asking for
       help) — the core of Social Effectiveness Therapy (SET-C). The therapist drives;

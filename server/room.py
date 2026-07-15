@@ -40,8 +40,9 @@ from briocare.runtime.events import (
     Tick,
 )
 from briocare.runtime.machine import SessionMachine
+from briocare.runtime.policies import all_participants_done
 from briocare.runtime.state import Lifecycle
-from briocare.scripts.schema import ExerciseScript
+from briocare.scripts.schema import AdvanceWhen, ExerciseScript
 from server import dump, privacy, protocol
 from server.daily import Daily
 from server.notes import NoteTaker
@@ -92,6 +93,8 @@ class SessionRoom:
         self._utts_since_notes = 0
         self._notes_task: asyncio.Task[None] | None = None
         self.last_notes = ""
+        self.current_prompt = ""  # what the kids' shared bubble/thermometer shows right now
+        self._alldone_notified: tuple[str, float] | None = None  # (phase_id, entered_at)
 
         self.room_url: str | None = None
         self._room_fetched = False
@@ -352,7 +355,28 @@ class SessionRoom:
             stamped = event.model_copy(update={"at": self.clock.now()})
             actions = self.machine.step(stamped)
             await self._broadcast_actions(actions)
+            await self._maybe_notify_all_done()
             self._reschedule_deadline()
+
+    async def _maybe_notify_all_done(self) -> None:
+        """In a clinician-advanced (manual) phase, tell the therapist once when every
+        child has shared, so they know it's a good moment to move on."""
+        assert self.machine is not None
+        st = self.machine.state.phase
+        if st is None or self.machine.state.lifecycle != Lifecycle.IN_PHASE:
+            return
+        with contextlib.suppress(KeyError):
+            phase = self.script.phase_by_id(st.phase_id)
+            key = (st.phase_id, st.entered_at)
+            if (
+                phase.pacing.advance_when == AdvanceWhen.MANUAL
+                and self._alldone_notified != key
+                and all_participants_done(st, list(self.machine.state.roster))
+            ):
+                self._alldone_notified = key
+                await self._send_therapist(
+                    protocol.notice_msg("✅ Everyone has shared — press Next activity when you're ready.")
+                )
 
     async def _broadcast_actions(self, actions: list[Any]) -> None:
         assert self.machine is not None
@@ -368,6 +392,7 @@ class SessionRoom:
 
         snapshot = self._snapshot()
         await self._broadcast(protocol.snapshot_msg(snapshot))
+        prompt_before = self.current_prompt
 
         # Shared, kid-appropriate prompts (activity openings/transitions), optionally phrased.
         notes_phase = self._current_phase_notes()
@@ -377,14 +402,20 @@ class SessionRoom:
             if isinstance(action, SayPrompt) and action.source in _SHAREABLE:
                 text = await self.phraser.phrase(action, facilitator_notes=notes_phase, recent_history=history)
                 if text:
+                    self.current_prompt = text  # carried in every snapshot so kid screens can't go stale
                     await self._broadcast(protocol.assistant_msg(text))
             if isinstance(action, RequestRating):
+                self.current_prompt = f"🌡️ {action.prompt_text}"
                 await self._broadcast(protocol.request_rating_msg(scale=action.scale, prompt=action.prompt_text))
             if isinstance(action, (AcknowledgeSpeaker, InviteParticipant)):
                 advanced = True
             if isinstance(action, EndSession):
                 await self._broadcast(protocol.session_over_msg())
                 self._trigger_final()
+        if self.current_prompt != prompt_before:
+            # the shared prompt changed this step — resync everyone's snapshot so no
+            # kid screen can be left showing the previous activity's instructions
+            await self._broadcast(protocol.snapshot_msg(self._snapshot()))
         if advanced:
             self._trigger_notes()
 
@@ -592,6 +623,8 @@ class SessionRoom:
             "activity_total": len(linear_ids),
             # On-demand activity library the therapist can launch by button.
             "activities": [{"id": p.id, "title": p.title} for p in self.script.phases if p.menu_only],
+            # What the kids' shared bubble/thermometer shows right now (stale-proof resync).
+            "current_prompt": self.current_prompt,
         }
         if self.machine is None:
             return {

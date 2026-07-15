@@ -98,6 +98,8 @@ def next_turn(
 
 
 def phase_complete(phase: Phase, state: PhaseRuntimeState, roster: list[str], now: float) -> bool:
+    if phase.pacing.advance_when == AdvanceWhen.MANUAL:
+        return False  # only the clinician's override completes a manual phase
     elapsed = now - state.entered_at
     if elapsed < phase.pacing.min_phase_seconds:
         return False
