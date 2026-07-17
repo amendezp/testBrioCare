@@ -45,7 +45,7 @@ from briocare.runtime.policies import all_participants_done
 from briocare.runtime.policies import next_turn as upcoming_turn
 from briocare.runtime.state import Lifecycle
 from briocare.scripts.schema import AdvanceWhen, ExerciseScript, TurnOrder
-from server import dump, privacy, protocol
+from server import dump, privacy, protocol, safety
 from server.daily import Daily
 from server.notes import NoteTaker
 from server.phraser import Phraser
@@ -53,6 +53,21 @@ from server.phraser import Phraser
 THERAPIST_NAME = "Therapist"
 MAX_KIDS = 6
 _NOTES_EVERY = 6  # refresh live notes after this many new utterances
+
+# Supervised buddy moment: a child talks to their animal buddy. The buddy LISTENS and
+# validates with fixed, warm lines — it never converses (no LLM) — and everything mirrors
+# to the clinician, who can join or end it anytime.
+_BUDDY_SECONDS = 300  # 5 minutes, with a server-side backstop that returns them to the circle
+_BUDDY_PROMPT = "It's just us for a little while. How are you feeling today? I'm listening. 💛"
+_BUDDY_REPLIES = (
+    "Thank you for telling me that. 💛",
+    "I'm listening. You can tell me more.",
+    "That sounds important. I'm right here.",
+    "It's okay to feel that way.",
+    "Thank you for sharing with me.",
+    "I'm so glad you told me.",
+)
+_KID_ANIMALS = ("fox", "bunny", "bear", "owl", "hummingbird")
 
 # Spoken actions whose wording is friendly to share with the kids too.
 _SHAREABLE = frozenset(
@@ -69,6 +84,8 @@ class KidConn:
     # Private reclaim token: sent only to this kid; presenting it on a later join
     # rebinds them to this pid after a refresh or network drop.
     token: str = field(default_factory=lambda: secrets.token_urlsafe(12))
+    in_buddy: bool = False  # currently in a supervised buddy moment
+    buddy_reply_i: int = 0  # rotates the fixed buddy acknowledgments
 
 
 class SessionRoom:
@@ -98,6 +115,7 @@ class SessionRoom:
         self._utts_since_notes = 0
         self._notes_task: asyncio.Task[None] | None = None
         self.last_notes = ""
+        self._buddy_tasks: dict[str, asyncio.Task[None]] = {}  # per-kid 5-min buddy backstop
         self.current_prompt = ""  # what the kids' shared bubble/thermometer shows right now
         self.turn_prompt = ""  # a prompt addressed to ONE kid (only they see it)
         self.turn_prompt_for: str | None = None
@@ -198,6 +216,16 @@ class SessionRoom:
         if isinstance(msg, protocol.PrivateNudgeMsg):
             await self._on_private_nudge(msg.pid)
             return
+        if isinstance(msg, protocol.BuddyEnterMsg):
+            await self._on_buddy_enter(msg.pid)
+            return
+        if isinstance(msg, protocol.BuddyLeaveMsg):
+            pid = msg.pid if role == protocol.THERAPIST else (self._pid_for_ws(ws))
+            await self._on_buddy_leave(pid)
+            return
+        if isinstance(msg, protocol.BuddySpokeMsg):
+            await self._on_buddy_spoke(ws, msg.text)
+            return
         if isinstance(msg, protocol.StartMsg):
             await self._on_start()
             return
@@ -206,16 +234,26 @@ class SessionRoom:
     @staticmethod
     def _role_allows(role: str, msg: protocol.ClientMessage) -> bool:
         if role == protocol.KID:
-            # A child can join, speak, tap a chip, and rate — but never end the group
-            # session (they leave by closing their own tab; the therapist ends the session).
+            # A child can join, speak, tap a chip, rate, talk to their buddy, and leave the
+            # buddy — but never end the group session or send another child anywhere.
             return isinstance(
                 msg,
-                (protocol.JoinMsg, protocol.ReadyMsg, protocol.SpokeMsg, protocol.QuickReplyMsg, protocol.RatingMsg),
+                (
+                    protocol.JoinMsg, protocol.ReadyMsg, protocol.SpokeMsg, protocol.QuickReplyMsg,
+                    protocol.RatingMsg, protocol.BuddySpokeMsg, protocol.BuddyLeaveMsg,
+                ),
             )
         return isinstance(
             msg,
-            (protocol.StartMsg, protocol.SpokeMsg, protocol.PrivateNudgeMsg, protocol.OverrideMsg, protocol.EndMsg),
+            (
+                protocol.StartMsg, protocol.SpokeMsg, protocol.PrivateNudgeMsg, protocol.BuddyEnterMsg,
+                protocol.BuddyLeaveMsg, protocol.OverrideMsg, protocol.EndMsg,
+            ),
         )
+
+    def _pid_for_ws(self, ws: Any) -> str | None:
+        conn = self._conn_for_ws(ws)
+        return conn.pid if conn is not None else None
 
     async def _on_join(self, ws: Any, name: str, *, token: str | None = None) -> None:
         conn = self._conn_for_ws(ws)
@@ -284,6 +322,8 @@ class SessionRoom:
         at = self.clock.now() if self.clock is not None else 0.0
         self.transcript.append({"role": role, "name": name, "pid": pid, "text": text, "at": at})
         await self._send_therapist(protocol.transcript_msg(role=role, name=name, text=text, at=at, pid=pid))
+        if role == protocol.KID:
+            await self._safety_scan(name, text, where="the circle")
 
         # Only a rostered kid's words drive the session-mechanics engine.
         if (
@@ -297,6 +337,80 @@ class SessionRoom:
         self._utts_since_notes += 1
         if self._utts_since_notes >= _NOTES_EVERY:
             self._trigger_notes()
+
+    async def _safety_scan(self, name: str, text: str, *, where: str) -> None:
+        """Guardian: any concerning child utterance raises an immediate clinician alert
+        (a safety net, never a block). Also recorded in the transcript for the audit."""
+        hit = safety.scan(text)
+        if hit is None:
+            return
+        at = self.clock.now() if self.clock is not None else 0.0
+        self.transcript.append(
+            {"role": "system", "name": "⚠️ Guardian", "pid": None,
+             "text": f"[safety] {name} in {where}: {hit.label} (\"{hit.matched}\")", "at": at, "kind": "safety"}
+        )
+        await self._send_therapist(
+            protocol.safety_alert_msg(name=name, label=hit.label, matched=hit.matched, where=where)
+        )
+
+    # -- supervised buddy moment -------------------------------------------
+
+    async def _on_buddy_enter(self, pid: str | None) -> None:
+        """Clinician sends one child to their buddy. Never gated on anything; fully
+        supervised — mirrored to the console, endable anytime, with a 5-min backstop."""
+        conn = self.kids.get(pid) if pid else None
+        if conn is None or conn.in_buddy:
+            return
+        conn.in_buddy = True
+        conn.buddy_reply_i = 0
+        animal = _KID_ANIMALS[(int(pid[3:]) if pid[3:].isdigit() else 0) % len(_KID_ANIMALS)]
+        await self._send_kid(pid, protocol.buddy_start_msg(animal=animal, prompt=_BUDDY_PROMPT, seconds=_BUDDY_SECONDS))
+        await self._send_therapist(
+            protocol.notice_msg(f"{conn.name} is having a buddy moment 🐾 (you can join or end it).")
+        )
+        await self._send_therapist(protocol.snapshot_msg(self._snapshot()))
+        self._buddy_tasks[pid] = asyncio.create_task(self._buddy_backstop(pid))
+
+    async def _buddy_backstop(self, pid: str) -> None:
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.sleep(_BUDDY_SECONDS)
+            conn = self.kids.get(pid)
+            if conn is not None and conn.in_buddy:
+                await self._on_buddy_leave(pid)
+
+    async def _on_buddy_leave(self, pid: str | None) -> None:
+        conn = self.kids.get(pid) if pid else None
+        if conn is None or not conn.in_buddy:
+            return
+        conn.in_buddy = False
+        task = self._buddy_tasks.pop(pid, None)
+        # Cancel the 5-min backstop — but never the *current* task: when the backstop
+        # itself fires this leave, self-cancelling would abort the buddy_end/notice
+        # sends below (they'd hit the backstop's suppress(CancelledError)).
+        if task is not None and task is not asyncio.current_task():
+            task.cancel()
+        await self._send_kid(pid, protocol.buddy_end_msg())
+        await self._send_therapist(protocol.notice_msg(f"{conn.name} came back from their buddy moment 💛"))
+        await self._send_therapist(protocol.snapshot_msg(self._snapshot()))
+
+    async def _on_buddy_spoke(self, ws: Any, text: str) -> None:
+        """A child talks to their buddy: mirrored to the clinician, crisis-scanned, and
+        answered ONLY with a fixed warm line (spoken via the child's browser). No LLM."""
+        text = text.strip()[:300]
+        conn = self._conn_for_ws(ws)
+        if not text or conn is None or not conn.in_buddy:
+            return
+        at = self.clock.now() if self.clock is not None else 0.0
+        self.transcript.append(
+            {"role": protocol.KID, "name": conn.name, "pid": conn.pid, "text": text, "at": at, "kind": "buddy"}
+        )
+        await self._send_therapist(
+            protocol.transcript_msg(role=protocol.KID, name=f"{conn.name} 🐾", text=text, at=at, pid=conn.pid)
+        )
+        await self._safety_scan(conn.name, text, where="the buddy room")
+        reply = _BUDDY_REPLIES[conn.buddy_reply_i % len(_BUDDY_REPLIES)]
+        conn.buddy_reply_i += 1
+        await self._send_kid(conn.pid, protocol.buddy_reply_msg(reply))
 
     async def _on_quick_reply(self, ws: Any, text: str) -> None:
         """A child tapped a feeling chip. Auto-relay it to the whole circle (the child
@@ -677,10 +791,12 @@ class SessionRoom:
         return None
 
     def _engagement(self) -> dict[str, dict]:
-        """Session-total speaking stats per kid, derived from the transcript."""
+        """Session-total speaking stats per kid, derived from the transcript. Private
+        buddy-room talk is excluded — this measures circle participation, not the
+        supervised breakout (which the therapist still sees in the transcript)."""
         eng: dict[str, dict] = {}
         for e in self.transcript:
-            if e.get("role") == protocol.KID and e.get("pid"):
+            if e.get("role") == protocol.KID and e.get("pid") and e.get("kind") != "buddy":
                 d = eng.setdefault(e["pid"], {"utterances": 0, "words": 0, "last_at": None})
                 d["utterances"] += 1
                 d["words"] += len(e.get("text", "").split())
@@ -689,6 +805,7 @@ class SessionRoom:
 
     def _snapshot(self) -> dict:
         lobby = [{"pid": c.pid, "name": c.name, "ready": c.ready} for c in self.kids.values()]
+        in_buddy = {c.pid for c in self.kids.values() if c.in_buddy}
         # The linear session is the non-menu_only phases; menu_only are on-demand activities.
         linear_ids = [p.id for p in self.script.phases if not p.menu_only]
         header = {
@@ -765,6 +882,7 @@ class SessionRoom:
                         "pid": pid,
                         "name": name,
                         "connected": kc is not None and kc.ws is not None,
+                        "in_buddy": pid in in_buddy,
                         "spoke_count": ps.spoke_count if ps else 0,
                         "passed": ps.passed if ps else False,
                         "skipped": ps.skipped if ps else False,

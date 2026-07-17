@@ -71,6 +71,28 @@ class PrivateNudgeMsg(_ClientMsg):
     pid: str
 
 
+class BuddyEnterMsg(_ClientMsg):
+    """Therapist sends one child to a supervised buddy moment (clinician-initiated)."""
+
+    type: Literal["buddy_enter"] = "buddy_enter"
+    pid: str
+
+
+class BuddyLeaveMsg(_ClientMsg):
+    """End a child's buddy moment — sent by the therapist (pid) or the child (self)."""
+
+    type: Literal["buddy_leave"] = "buddy_leave"
+    pid: str | None = None
+
+
+class BuddySpokeMsg(_ClientMsg):
+    """A child speaks to their buddy during the buddy moment (mirrored to the therapist,
+    scanned for crisis words; the buddy replies only with fixed acknowledgments)."""
+
+    type: Literal["buddy_spoke"] = "buddy_spoke"
+    text: str
+
+
 class OverrideMsg(_ClientMsg):
     type: Literal["override"] = "override"
     command: OverrideCommand
@@ -82,7 +104,8 @@ class EndMsg(_ClientMsg):
 
 
 ClientMessage = Annotated[
-    JoinMsg | ReadyMsg | StartMsg | SpokeMsg | QuickReplyMsg | RatingMsg | PrivateNudgeMsg | OverrideMsg | EndMsg,
+    JoinMsg | ReadyMsg | StartMsg | SpokeMsg | QuickReplyMsg | RatingMsg | PrivateNudgeMsg
+    | BuddyEnterMsg | BuddyLeaveMsg | BuddySpokeMsg | OverrideMsg | EndMsg,
     Field(discriminator="type"),
 ]
 
@@ -158,6 +181,27 @@ def assistant_msg(text: str) -> dict:
 def private_prompt_msg(text: str) -> dict:
     """Gentle, one-directional encouragement shown only on one child's screen."""
     return {"type": "private_prompt", "text": text}
+
+
+def buddy_start_msg(*, animal: str, prompt: str, seconds: int) -> dict:
+    """Tell one child to open their buddy view (animal SVG, warm prompt, countdown)."""
+    return {"type": "buddy_start", "animal": animal, "prompt": prompt, "seconds": seconds}
+
+
+def buddy_reply_msg(text: str) -> dict:
+    """A fixed, warm buddy acknowledgment for the child's screen to speak aloud (TTS).
+    Never an LLM response — the buddy listens and validates, it does not converse."""
+    return {"type": "buddy_reply", "text": text}
+
+
+def buddy_end_msg() -> dict:
+    """Return a child from the buddy moment to the circle."""
+    return {"type": "buddy_end"}
+
+
+def safety_alert_msg(*, name: str, label: str, matched: str, where: str) -> dict:
+    """High-priority, therapist-only alert: a child may have said something concerning."""
+    return {"type": "safety_alert", "name": name, "label": label, "matched": matched, "where": where}
 
 
 def request_rating_msg(*, scale: int, prompt: str) -> dict:

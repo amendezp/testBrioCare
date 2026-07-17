@@ -862,3 +862,214 @@ def test_snapshot_lists_activities_and_goto_launches_one(monkeypatch) -> None:
     first, ther = asyncio.run(scenario())
     assert any(a["id"] == "act_compliments" for a in first["activities"])  # library is advertised
     assert _last_snapshot(ther)["phase_id"] == "act_compliments"  # button launches it
+
+
+# --- supervised buddy moment ------------------------------------------------
+def _buddy_enter(pid: str) -> str:
+    return json.dumps({"type": "buddy_enter", "pid": pid})
+
+
+def _buddy_leave(pid: str | None = None) -> str:
+    return json.dumps({"type": "buddy_leave", "pid": pid})
+
+
+def _buddy_spoke(text: str) -> str:
+    return json.dumps({"type": "buddy_spoke", "text": text})
+
+
+def test_buddy_enter_mirrors_and_replies_with_fixed_line(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> tuple[SessionRoom, _FakeWS, _FakeWS, int, int]:
+        room = _make_room("bud1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.THERAPIST, ther, _buddy_enter("kid1"))
+        _cancel(room)
+        before = len(_action_kinds(ther))
+        await room.handle_client_message(protocol.KID, maya, _buddy_spoke("i feel kind of sad today"))
+        _cancel(room)
+        after = len(_action_kinds(ther))
+        return room, ther, maya, before, after
+
+    _room, ther, maya, before, after = asyncio.run(scenario())
+
+    # the child opened a buddy view with an animal, a warm prompt, and the countdown
+    starts = [m for m in maya.sent if m["type"] == "buddy_start"]
+    assert len(starts) == 1
+    assert starts[0]["seconds"] == room_mod._BUDDY_SECONDS
+    assert starts[0]["animal"] in room_mod._KID_ANIMALS
+    assert starts[0]["prompt"]
+
+    # the therapist snapshot flags the child as in the buddy room
+    snap = _last_snapshot(ther)
+    assert snap is not None
+    assert next(p for p in snap["participants"] if p["pid"] == "kid1")["in_buddy"] is True
+
+    # what the child said mirrors to the therapist, tagged with the paw
+    tx = [(m["name"], m["text"]) for m in ther.sent if m["type"] == "transcript"]
+    assert ("Maya 🐾", "i feel kind of sad today") in tx
+
+    # the buddy answers ONLY with a fixed, warm line and never steps the engine
+    replies = [m["text"] for m in maya.sent if m["type"] == "buddy_reply"]
+    assert replies == [room_mod._BUDDY_REPLIES[0]]
+    assert after == before
+
+
+def test_buddy_leave_returns_child_and_clears_flag(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> tuple[SessionRoom, _FakeWS, _FakeWS]:
+        room = _make_room("bud2")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.THERAPIST, ther, _buddy_enter("kid1"))
+        _cancel(room)
+        await room.handle_client_message(protocol.THERAPIST, ther, _buddy_leave("kid1"))
+        _cancel(room)
+        return room, ther, maya
+
+    room, ther, maya = asyncio.run(scenario())
+    assert any(m["type"] == "buddy_end" for m in maya.sent)
+    assert room.kids["kid1"].in_buddy is False
+    assert next(p for p in _last_snapshot(ther)["participants"] if p["pid"] == "kid1")["in_buddy"] is False
+
+
+def test_child_can_leave_own_buddy_moment(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> tuple[SessionRoom, _FakeWS]:
+        room = _make_room("bud3")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.THERAPIST, ther, _buddy_enter("kid1"))
+        _cancel(room)
+        # the child taps "back to the circle" — no pid, resolved from their own socket
+        await room.handle_client_message(protocol.KID, maya, _buddy_leave())
+        _cancel(room)
+        return room, maya
+
+    room, maya = asyncio.run(scenario())
+    assert any(m["type"] == "buddy_end" for m in maya.sent)
+    assert room.kids["kid1"].in_buddy is False
+
+
+def test_child_cannot_send_another_child_to_buddy(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> SessionRoom:
+        room = _make_room("bud4")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await _add_kid(room, "Leo")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        # Maya tries to push Leo into a buddy moment — not allowed for a kid role
+        await room.handle_client_message(protocol.KID, maya, _buddy_enter("kid2"))
+        _cancel(room)
+        return room
+
+    room = asyncio.run(scenario())
+    assert room.kids["kid2"].in_buddy is False
+
+
+def test_buddy_backstop_auto_returns_child_after_timeout(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> tuple[SessionRoom, _FakeWS]:
+        room = _make_room("bud5")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.THERAPIST, ther, _buddy_enter("kid1"))
+        _cancel(room)
+        # let the 5-min server-side backstop fire (fake clock advances instantly)
+        task = room._buddy_tasks.get("kid1")
+        assert task is not None
+        await task
+        return room, maya
+
+    room, maya = asyncio.run(scenario())
+    assert any(m["type"] == "buddy_end" for m in maya.sent)  # cleanly returned despite the timer
+    assert room.kids["kid1"].in_buddy is False
+    assert "kid1" not in room._buddy_tasks
+
+
+def test_safety_alert_raised_in_circle_and_buddy(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> _FakeWS:
+        room = _make_room("bud6")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        # a concerning disclosure in the circle
+        await room.handle_client_message(protocol.KID, maya, _spoke("sometimes I want to die"))
+        _cancel(room)
+        # and one during a buddy moment
+        await room.handle_client_message(protocol.THERAPIST, ther, _buddy_enter("kid1"))
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, _buddy_spoke("my dad hits me"))
+        _cancel(room)
+        return ther
+
+    ther = asyncio.run(scenario())
+    alerts = [m for m in ther.sent if m["type"] == "safety_alert"]
+    wheres = {a["where"] for a in alerts}
+    assert "the circle" in wheres
+    assert "the buddy room" in wheres
+    assert all(a["name"] == "Maya" and a["label"] and a["matched"] for a in alerts)
+
+
+def test_no_safety_alert_on_ordinary_talk(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> _FakeWS:
+        room = _make_room("bud7")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, _spoke("my favorite animal is a fox"))
+        _cancel(room)
+        return ther
+
+    ther = asyncio.run(scenario())
+    assert not [m for m in ther.sent if m["type"] == "safety_alert"]
+
+
+def test_buddy_talk_excluded_from_circle_engagement(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> dict:
+        room = _make_room("bud8")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.THERAPIST, ther, _buddy_enter("kid1"))
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, _buddy_spoke("i feel a little nervous today"))
+        _cancel(room)
+        return room._engagement()
+
+    eng = asyncio.run(scenario())
+    # the child only spoke in the buddy room — circle engagement stays empty for them
+    assert eng.get("kid1", {}).get("words", 0) == 0
+    assert eng.get("kid1", {}).get("utterances", 0) == 0

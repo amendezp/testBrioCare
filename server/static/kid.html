@@ -138,6 +138,33 @@
   #animals { width:min(86vw,360px); margin:0 auto 10px; }
   #end-title { font-size:clamp(26px,4.6vh,34px); font-weight:800; color:var(--teal-deep); margin:6px 0; }
   #end-sub { font-size:clamp(16px,2.4vh,19px); color:var(--mut); margin:0; }
+
+  /* SUPERVISED BUDDY MOMENT — a private, warm space; the buddy only listens & validates */
+  #buddyscreen { position:fixed; inset:0; z-index:18; display:none; flex-direction:column; align-items:center;
+    justify-content:flex-start; gap:clamp(8px,1.6vh,16px); padding:clamp(14px,3vh,30px) 16px clamp(16px,3vh,30px);
+    overflow-y:auto; text-align:center;
+    background:linear-gradient(170deg,#eafaf6 0%,#f7fbf9 52%,#fdf1f3 100%); }
+  #buddyscreen.show { display:flex; }
+  #buddyscreen > * { flex-shrink:0; }
+  #buddy-count { font-family:ui-monospace,Menlo,monospace; font-size:15px; font-weight:700; color:var(--mut); }
+  #buddy-animal { width:min(38vw,150px); height:min(38vw,150px); }
+  #buddy-animal svg { width:100%; height:100%; }
+  #buddy-title { font-size:clamp(19px,3vh,26px); font-weight:800; color:var(--teal-deep); }
+  #buddy-bubble { max-width:560px; width:100%; background:#fff; border:2px solid #e6f3f0; border-radius:20px;
+    padding:14px 18px; font-size:clamp(16px,2.4vh,21px); font-weight:700; color:var(--teal-deep); min-height:28px;
+    box-shadow:0 8px 22px rgba(34,100,104,.08); }
+  #buddy-bubble.speaking { border-color:var(--teal-light); }
+  #buddy-mic { width:clamp(92px,17vh,160px); height:clamp(92px,17vh,160px); border-radius:50%; color:#fff; font-size:0;
+    display:flex; align-items:center; justify-content:center; position:relative; flex:0 0 auto;
+    transition:transform .08s, background .2s, box-shadow .2s; margin-top:clamp(2px,1vh,8px); }
+  #buddy-mic svg { width:43%; height:43%; }
+  #buddy-mic:active { transform:scale(.96); }
+  #buddy-mic.muted { background:var(--coral); box-shadow:0 12px 30px rgba(241,105,124,.4); }
+  #buddy-mic.live { background:var(--teal); box-shadow:0 0 0 0 rgba(57,167,158,.55); animation:ring 1.4s infinite; }
+  #buddy-mic-label { font-size:clamp(15px,2.2vh,19px); font-weight:800; color:var(--teal-deep); }
+  #buddy-back { background:#fff; color:var(--coral); border:2px solid #f6d6db; border-radius:16px;
+    padding:11px 20px; font-size:16px; font-weight:800; box-shadow:0 4px 14px rgba(241,105,124,.18);
+    margin-top:clamp(2px,1vh,10px); }
 </style>
 </head>
 <body>
@@ -180,6 +207,17 @@
     <h1 id="end-title">Great job today! 🌟</h1>
     <p id="end-sub">You can close this tab now.</p>
   </div></div>
+
+  <!-- SUPERVISED BUDDY MOMENT -->
+  <div id="buddyscreen">
+    <div id="buddy-count">5:00</div>
+    <div id="buddy-animal"></div>
+    <div id="buddy-title">It's just us for a little while 💛</div>
+    <div id="buddy-bubble">How are you feeling today? I'm listening.</div>
+    <button id="buddy-mic" class="muted" aria-label="talk to your buddy"></button>
+    <div id="buddy-mic-label">Tap and tell your buddy</div>
+    <button id="buddy-back">← Back to the circle</button>
+  </div>
 
   <!-- JOIN GATE -->
   <div id="gate"><div class="box">
@@ -245,6 +283,8 @@ const MIC_OFF = `<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width
 
 let ws, rec, started = false, callFrame = null, myPid = null, myName = "Guest", live = false, myTurn = false;
 let phaseMode = null, rated = false;
+// supervised buddy moment: private, group mic OFF, transcription routed to buddy_spoke
+let inBuddy = false, buddyLive = false, buddyTimer = null;
 
 // non-voice reply chips + feelings thermometer faces (1..5)
 const QUICK = [["😀","good"],["😟","nervous"],["😢","sad"],["😡","mad"],["😴","tired"],["🤔","not sure"]];
@@ -301,6 +341,7 @@ $("join").onclick = join;
 $("name").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
 
 function showEndScreen(title, sub) {
+  exitBuddy();
   $("end-title").textContent = title;
   $("end-sub").textContent = sub;
   $("leave").classList.remove("show");
@@ -358,6 +399,9 @@ function handle(msg) {
   else if (msg.type === "assistant") { if (phaseMode !== "rating") { $("bubble").textContent = msg.text; $("bubble").classList.add("show"); } }
   else if (msg.type === "request_rating") showFeelings(msg.scale, msg.prompt);
   else if (msg.type === "private_prompt") { $("private-bubble").textContent = msg.text; $("private-bubble").classList.add("show"); }
+  else if (msg.type === "buddy_start") enterBuddy(msg.animal, msg.prompt, msg.seconds);
+  else if (msg.type === "buddy_reply") speakBuddy(msg.text);
+  else if (msg.type === "buddy_end") exitBuddy();
   else if (msg.type === "snapshot") applySnapshot(msg.state);
   else if (msg.type === "session_over") { started = false; leftForGood = true; try { sessionStorage.removeItem(IDKEY); } catch (e) {} leaveCall(); hideFeelings(); $("quick-replies").classList.remove("show"); $("mic").disabled = true; showEndScreen("All done — great job! 🌟", "Your therapist wrapped up the circle."); }
   else if (msg.type === "notice") $("mic-sub").textContent = msg.text;
@@ -481,11 +525,66 @@ $("mic").onclick = () => { if (!$("mic").disabled) setLive(!live); };
 function startSR() {
   if (!SR || rec) return;
   rec = new SR(); rec.lang = "en-US"; rec.continuous = true; rec.interimResults = false;
-  rec.onresult = (ev) => { for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) { const t = ev.results[i][0].transcript.trim(); if (t && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: "spoke", text: t })); } };
-  rec.onend = () => { if (live && rec) { try { rec.start(); } catch (e) {} } };
+  rec.onresult = (ev) => { for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) { const t = ev.results[i][0].transcript.trim(); if (t && ws && ws.readyState === 1) ws.send(JSON.stringify({ type: inBuddy ? "buddy_spoke" : "spoke", text: t })); } };
+  rec.onend = () => { if ((live || buddyLive) && rec) { try { rec.start(); } catch (e) {} } };
   try { rec.start(); } catch (e) {}
 }
 function stopSR() { const r = rec; rec = null; if (r) { try { r.stop(); } catch (e) {} } }
+
+// --- supervised buddy moment ---
+// A private, therapist-initiated 5 minutes with the child's animal buddy. The buddy
+// ONLY listens and validates: replies are fixed, warm acknowledgments spoken aloud by
+// the browser (never an LLM), and everything the child says mirrors to the therapist,
+// who can end it anytime. Crisis words raise a real-time alert on the therapist console.
+function enterBuddy(animal, prompt, seconds) {
+  inBuddy = true;
+  setLive(false);                                    // group mic OFF — buddy time is private
+  document.body.classList.remove("your-turn");
+  $("buddy-animal").innerHTML = (typeof brioAnimal === "function") ? brioAnimal(animal) : BUDDY;
+  $("buddy-bubble").textContent = prompt || "How are you feeling today? I'm listening.";
+  buddyLive = false; paintBuddyMic();
+  $("buddyscreen").classList.add("show");
+  startBuddyCountdown(seconds || 300);
+}
+function exitBuddy() {
+  if (!inBuddy && !$("buddyscreen").classList.contains("show")) return;
+  inBuddy = false; buddyLive = false;
+  stopSR();
+  try { window.speechSynthesis.cancel(); } catch (e) {}
+  if (buddyTimer) { clearInterval(buddyTimer); buddyTimer = null; }
+  $("buddyscreen").classList.remove("show");
+}
+function startBuddyCountdown(seconds) {
+  if (buddyTimer) clearInterval(buddyTimer);
+  let left = Math.max(0, seconds | 0);
+  const paint = () => { const m = Math.floor(left / 60), s = left % 60; $("buddy-count").textContent = m + ":" + String(s).padStart(2, "0"); };
+  paint();
+  buddyTimer = setInterval(() => { left = Math.max(0, left - 1); paint(); if (left <= 0 && buddyTimer) { clearInterval(buddyTimer); buddyTimer = null; } }, 1000);
+}
+function setBuddyLive(on) { buddyLive = on; if (on) startSR(); else stopSR(); paintBuddyMic(); }
+function paintBuddyMic() {
+  const mic = $("buddy-mic"), label = $("buddy-mic-label");
+  mic.innerHTML = buddyLive ? MIC_ON : MIC_OFF;
+  mic.classList.toggle("live", buddyLive);
+  mic.classList.toggle("muted", !buddyLive);
+  label.textContent = buddyLive ? "I'm listening… tap when you're done" : "Tap and tell your buddy";
+}
+// Speak a fixed, warm acknowledgment aloud. NOT a conversation — the buddy validates only.
+function speakBuddy(text) {
+  $("buddy-bubble").textContent = text;
+  $("buddy-bubble").classList.add("speaking");
+  setTimeout(() => $("buddy-bubble").classList.remove("speaking"), 2600);
+  try {
+    if (window.speechSynthesis) {
+      const u = new SpeechSynthesisUtterance(text);
+      u.rate = 0.95; u.pitch = 1.15; u.lang = "en-US";
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+    }
+  } catch (e) {}
+}
+$("buddy-mic").onclick = () => setBuddyLive(!buddyLive);
+$("buddy-back").onclick = () => { wsSend({ type: "buddy_leave" }); exitBuddy(); };
 
 // A refresh mid-session skips the gate: reconnect straight away with the saved identity.
 const _saved = savedIdentity();
