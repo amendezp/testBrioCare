@@ -206,6 +206,7 @@
     </div>
     <h1 id="end-title">Great job today! 🌟</h1>
     <p id="end-sub">You can close this tab now.</p>
+    <button id="end-home" class="big-btn" style="width:min(100%,320px);margin-top:14px">🏠 Back to home</button>
   </div></div>
 
   <!-- SUPERVISED BUDDY MOMENT -->
@@ -339,6 +340,7 @@ function join() {
 }
 $("join").onclick = join;
 $("name").addEventListener("keydown", (e) => { if (e.key === "Enter") join(); });
+$("end-home").onclick = () => { location.href = "/"; };
 
 function showEndScreen(title, sub) {
   exitBuddy();
