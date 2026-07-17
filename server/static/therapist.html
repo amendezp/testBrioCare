@@ -304,7 +304,9 @@ function renderState(st) {
     $("b-start").textContent = d.toLocaleTimeString(undefined, { hour:"numeric", minute:"2-digit" });
   }
   elapsedBase = st.elapsed_seconds || 0; elapsedSince = Date.now();
-  setKidScreen(st.current_prompt);  // mirror of the kids' shared bubble (reconnect-safe)
+  // Mirror of the kids' bubbles (reconnect-safe); a per-kid prompt is labelled as such.
+  const tpName = st.turn_prompt_for ? (((st.participants || []).find(p => p.pid === st.turn_prompt_for) || {}).name) : null;
+  setKidScreen(st.turn_prompt && tpName ? `→ only ${tpName} sees: ${st.turn_prompt}` : st.current_prompt);
 
   // engagement rows
   const started = life !== "not_started";

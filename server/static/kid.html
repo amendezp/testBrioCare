@@ -46,11 +46,11 @@
   .bird-sm { width:54px; height:50px; flex:0 0 auto; }
   .topline { display:flex; align-items:center; gap:12px; }
   #banner { font-size:clamp(18px,2.6vh,23px); font-weight:800; min-height:26px; color:var(--teal-deep); }
-  #banner.turn { color:var(--coral); }
+  #banner.turn { color:var(--teal); }  /* your turn = warm "go" teal, never alarm-red */
   #status-sub { font-size:clamp(13px,1.9vh,15px); color:var(--mut); min-height:18px; max-width:640px; }
-  /* unmissable "your turn": a soft coral glow around the whole screen */
+  /* unmissable "your turn": a soft TEAL glow around the whole screen — inviting, not alarming */
   body.your-turn::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:6;
-    box-shadow: inset 0 0 0 6px var(--coral), inset 0 0 70px rgba(241,105,124,.28);
+    box-shadow: inset 0 0 0 6px var(--teal), inset 0 0 70px rgba(57,167,158,.30);
     animation:turnglow 1.2s ease-in-out infinite alternate; }
   @keyframes turnglow { from { opacity:.5; } to { opacity:1; } }
   @media (prefers-reduced-motion: reduce) { body.your-turn::after { animation:none; opacity:.8; } }
@@ -80,14 +80,14 @@
   /* live = teal, pulsing ring */
   #mic.live { background:var(--teal); box-shadow:0 0 0 0 rgba(57,167,158,.55); animation:ring 1.4s infinite; }
   @keyframes ring { 0%{box-shadow:0 0 0 0 rgba(57,167,158,.5)} 100%{box-shadow:0 0 0 30px rgba(57,167,158,0)} }
-  /* it's THIS kid's turn and they're still muted: the mic itself glows hard */
+  /* it's THIS kid's turn and they're still muted: a warm TEAL "go" halo on the mic */
   #mic.invite { animation:invitepulse 1.1s ease-in-out infinite; }
   @keyframes invitepulse {
-    0%,100% { transform:scale(1);    box-shadow:0 0 0 6px rgba(241,105,124,.35), 0 0 26px 8px rgba(241,105,124,.45); }
-    50%     { transform:scale(1.08); box-shadow:0 0 0 14px rgba(241,105,124,.22), 0 0 60px 20px rgba(241,105,124,.7); }
+    0%,100% { transform:scale(1);    box-shadow:0 0 0 6px rgba(57,167,158,.40), 0 0 26px 8px rgba(87,194,176,.50); }
+    50%     { transform:scale(1.08); box-shadow:0 0 0 14px rgba(57,167,158,.25), 0 0 60px 20px rgba(87,194,176,.75); }
   }
   @media (prefers-reduced-motion: reduce) {
-    #mic.invite { animation:none; box-shadow:0 0 0 10px rgba(241,105,124,.35), 0 0 40px 14px rgba(241,105,124,.55); }
+    #mic.invite { animation:none; box-shadow:0 0 0 10px rgba(57,167,158,.40), 0 0 40px 14px rgba(87,194,176,.6); }
   }
   #mic-label { font-size:clamp(16px,2.3vh,21px); font-weight:800; }
   #mic-label.muted { color:var(--coral); } #mic-label.live { color:var(--teal-deep); }
@@ -423,10 +423,12 @@ function applySnapshot(st) {
   $("status-sub").textContent = sub;
   document.body.classList.toggle("your-turn", started && myTurn && phaseMode !== "rating" && !st.paused);
 
-  // Stale-proof: every snapshot carries the current shared prompt, so this screen can
-  // never keep showing a previous activity's instructions (e.g. after a network blip).
-  if (started && phaseMode !== "rating" && st.current_prompt && !st.current_prompt.startsWith("🌡️")) {
-    if ($("bubble").textContent !== st.current_prompt) { $("bubble").textContent = st.current_prompt; $("bubble").classList.add("show"); }
+  // Stale-proof: every snapshot carries the current prompt. A prompt addressed to ONE
+  // kid (turn_prompt) shows only on that kid's screen; everyone else keeps the group
+  // instruction — nobody reads text meant for someone else.
+  const desired = (st.turn_prompt && st.turn_prompt_for === myPid) ? st.turn_prompt : st.current_prompt;
+  if (started && phaseMode !== "rating" && desired && !desired.startsWith("🌡️")) {
+    if ($("bubble").textContent !== desired) { $("bubble").textContent = desired; $("bubble").classList.add("show"); }
   }
   // Feeling chips only in phases built around tapping (quick_replies: true in the script) —
   // chips alongside a spoken prompt proved confusing, so talking phases don't show them.
@@ -467,7 +469,7 @@ function paintMic() {
   mic.classList.toggle("live", live);
   mic.classList.toggle("muted", !live);
   mic.classList.toggle("invite", !live && myTurn && started);
-  label.className = live ? "live" : "muted";
+  label.className = live || (myTurn && started) ? "live" : "muted";  // turn label in teal, not alarm-coral
   label.textContent = live ? "You're on — tap to mute" : (myTurn ? "Your turn — tap to talk!" : "Tap to talk");
   sub.textContent = live
     ? (started ? "Everyone can hear you 🎤" : "Everyone can hear you — the circle hasn't started yet 🎤")
