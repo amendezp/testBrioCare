@@ -1,0 +1,14 @@
+<svg viewBox="18 20 84 84" xmlns="http://www.w3.org/2000/svg">
+  <!-- The BrioCare bear cub (from animals.js), cropped square and slightly bolder so he
+       stays legible at 16px in a browser tab. -->
+  <circle cx="35" cy="42" r="14" fill="#e8902c"/>
+  <circle cx="85" cy="42" r="14" fill="#e8902c"/>
+  <circle cx="35" cy="42" r="7" fill="#fbe7c9"/>
+  <circle cx="85" cy="42" r="7" fill="#fbe7c9"/>
+  <circle cx="60" cy="64" r="33" fill="#e8902c"/>
+  <ellipse cx="60" cy="76" rx="19" ry="14" fill="#fbe7c9"/>
+  <circle cx="49" cy="60" r="5.5" fill="#1f3b3d"/>
+  <circle cx="71" cy="60" r="5.5" fill="#1f3b3d"/>
+  <circle cx="60" cy="72" r="5.5" fill="#1f3b3d"/>
+  <path d="M52 82 Q60 89 68 82" stroke="#1f3b3d" stroke-width="4" fill="none" stroke-linecap="round"/>
+</svg>
