@@ -106,6 +106,10 @@ class Phase(_Strict):
     # "rating": each child taps a feelings-thermometer value (no managed speaking turns).
     mode: Literal["conversation", "rating"] = "conversation"
     rating_scale: int = 5  # number of points on the thermometer when mode == "rating"
+    # Show the tap-a-feeling chips on kid screens during this phase. Off by default:
+    # chips alongside a spoken prompt proved confusing, so they're reserved for
+    # phases whose point IS tapping a feeling (e.g. the check-out circle activity).
+    quick_replies: bool = False
     # menu_only phases are an on-demand activity library: skipped by linear auto-advance,
     # launched by the clinician via goto_phase, and they return to a ready state when done.
     menu_only: bool = False

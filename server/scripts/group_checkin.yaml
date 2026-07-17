@@ -215,6 +215,36 @@ phases:
       "Brave step" sharing — the exposure / FEAR-plan idea from Coping Cat: name a small
       brave action. Celebrate every attempt; never push a child who passes.
 
+  - id: act_checkout
+    title: Check-out circle
+    menu_only: true
+    quick_replies: true
+    opening_prompt:
+      text: >
+        Before we go, let's each share one feeling word. When it's your turn, say it out
+        loud — or just tap the feeling below.
+    transition_prompt:
+      text: Thank you for sharing your feelings, everyone.
+    acknowledge_speakers: true
+    turn_policy:
+      order: round_robin
+      per_turn_seconds: 20
+      per_turn_hard_seconds: 40
+      allow_pass: true
+      one_turn_per_participant: true
+    participation:
+      require_all_speak: true
+      invite_quiet_after_seconds: 15
+      max_invites_per_participant: 2
+      quiet_participant_strategy: direct_invite
+    pacing:
+      min_phase_seconds: 0
+      advance_when: manual
+    facilitator_notes: >
+      A closing feelings round where tapping counts as sharing: each child names one
+      feeling out loud or taps a feeling chip. Low-pressure by design — the tap is a
+      full turn. The therapist paces it and presses Next activity when done.
+
   - id: act_thermometer
     title: Feelings thermometer
     menu_only: true

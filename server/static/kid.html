@@ -80,9 +80,15 @@
   /* live = teal, pulsing ring */
   #mic.live { background:var(--teal); box-shadow:0 0 0 0 rgba(57,167,158,.55); animation:ring 1.4s infinite; }
   @keyframes ring { 0%{box-shadow:0 0 0 0 rgba(57,167,158,.5)} 100%{box-shadow:0 0 0 30px rgba(57,167,158,0)} }
-  /* extra invite glow when it's this kid's turn but still muted */
-  #mic.invite { animation:invite 1s infinite; }
-  @keyframes invite { 0%,100%{transform:scale(1)} 50%{transform:scale(1.06)} }
+  /* it's THIS kid's turn and they're still muted: the mic itself glows hard */
+  #mic.invite { animation:invitepulse 1.1s ease-in-out infinite; }
+  @keyframes invitepulse {
+    0%,100% { transform:scale(1);    box-shadow:0 0 0 6px rgba(241,105,124,.35), 0 0 26px 8px rgba(241,105,124,.45); }
+    50%     { transform:scale(1.08); box-shadow:0 0 0 14px rgba(241,105,124,.22), 0 0 60px 20px rgba(241,105,124,.7); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #mic.invite { animation:none; box-shadow:0 0 0 10px rgba(241,105,124,.35), 0 0 40px 14px rgba(241,105,124,.55); }
+  }
   #mic-label { font-size:clamp(16px,2.3vh,21px); font-weight:800; }
   #mic-label.muted { color:var(--coral); } #mic-label.live { color:var(--teal-deep); }
   #mic-sub { font-size:clamp(13px,1.9vh,15px); color:var(--mut); min-height:18px; }
@@ -399,7 +405,8 @@ function applySnapshot(st) {
   } else if (st.lifecycle === "between_phases") {
     text = "Waiting for your therapist to pick what's next… ✨";
   } else if (myTurn) {
-    cls = "turn"; text = "It's your turn! ✨"; sub = "Tap the pink button to talk — or tap a feeling below 👇";
+    cls = "turn"; text = `It's your turn, ${myName}! ✨`;
+    sub = st.quick_replies ? "Say your feeling — or tap it below 👇" : "Tap the pink button and tell us!";
   } else if (st.next_turn && st.next_turn === myPid && st.current_turn_name) {
     text = `${st.current_turn_name}'s turn — you're next! 🌟`; sub = "Get your idea ready 💭";
   } else if (st.current_turn_name) {
@@ -421,8 +428,11 @@ function applySnapshot(st) {
   if (started && phaseMode !== "rating" && st.current_prompt && !st.current_prompt.startsWith("🌡️")) {
     if ($("bubble").textContent !== st.current_prompt) { $("bubble").textContent = st.current_prompt; $("bubble").classList.add("show"); }
   }
-  // The non-voice chips are available during a talking activity; the thermometer owns the rating phase.
-  $("quick-replies").classList.toggle("show", started && phaseMode !== "rating" && !observing && !st.paused);
+  // Feeling chips only in phases built around tapping (quick_replies: true in the script) —
+  // chips alongside a spoken prompt proved confusing, so talking phases don't show them.
+  $("quick-replies").classList.toggle(
+    "show", started && phaseMode !== "rating" && !!st.quick_replies && !observing && !st.paused
+  );
   if (phaseMode === "rating") $("bubble").classList.remove("show");  // thermometer prompt only — no duplicate
   else hideFeelings();
   paintMic();
