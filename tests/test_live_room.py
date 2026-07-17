@@ -423,6 +423,39 @@ def test_snapshot_carries_kid_state_fields(monkeypatch) -> None:
     assert share["quick_replies"] is False  # talking phases don't show feeling chips
 
 
+def test_therapist_can_give_the_turn_to_a_specific_kid(monkeypatch) -> None:
+    """The console's 🎤 Give turn button sends set_turn; the chosen kid becomes the
+    current turn and gets a clinician-directed invite."""
+    _install_fakes(monkeypatch)
+
+    def _rate(v: int) -> str:
+        return json.dumps({"type": "rating", "value": v})
+
+    async def scenario() -> tuple[dict, _FakeWS]:
+        room = _make_room("gt1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        leo = await _add_kid(room, "Leo")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, _rate(4))
+        await room.handle_client_message(protocol.KID, leo, _rate(2))  # -> share_feelings, kid1's turn
+        _cancel(room)
+        give = json.dumps({"type": "override", "command": "set_turn", "args": {"pid": "kid2"}})
+        await room.handle_client_message(protocol.THERAPIST, ther, give)
+        _cancel(room)
+        return _last_snapshot(ther), ther
+
+    snap, ther = asyncio.run(scenario())
+    assert snap["current_turn"] == "kid2"
+    assert snap["current_turn_name"] == "Leo"
+    assert any(
+        a["kind"] == "invite_participant" and a["participant_id"] == "kid2" and a["reason"] == "clinician_directed"
+        for m in ther.sent if m["type"] == "actions" for a in m["actions"]
+    )
+
+
 def test_checkout_activity_enables_quick_replies(monkeypatch) -> None:
     _install_fakes(monkeypatch)
 

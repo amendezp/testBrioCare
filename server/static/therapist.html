@@ -118,6 +118,7 @@
   <span class="sb-item">📅 <b id="b-date">—</b></span>
   <span class="sb-item">🕘 <b id="b-start">—</b></span>
   <span class="sb-item">⏱ <b id="b-elapsed">0:00</b></span>
+  <span class="sb-item" id="b-turnwrap" style="display:none">🎤 <b id="b-turn" style="color:var(--coral)">—</b></span>
   <span class="sb-item" id="b-cues">cues on</span>
   <span class="sb-item" id="b-nosr" style="display:none;color:var(--coral);font-weight:700">⚠️ Use Chrome to capture speech</span>
 </div>
@@ -143,7 +144,7 @@
         <button class="ghost" data-cmd="resume">Resume</button>
         <button class="ghost" data-cmd="mute_agent">Mute cues</button>
         <button class="ghost" data-cmd="unmute_agent">Cues on</button>
-        <button class="ghost" id="btn-skip">Skip turn</button>
+        <button class="ghost" id="btn-skip">▶ Next turn</button>
         <button class="warn" id="btn-end">End session</button>
       </div>
       <div class="row">
@@ -289,6 +290,13 @@ function renderState(st) {
   lifeBadge.className = "badge " + (life === "paused" ? "paused" : life === "ended" ? "ended" : (life === "not_started" ? "" : "live"));
   $("b-activity").textContent = st.phase_title ? `${st.phase_title} · ${(st.activity_index ?? 0) + 1} of ${st.activity_total}` : "—";
   $("b-cues").textContent = st.agent_muted ? "cues muted" : "cues on";
+  // Always-visible whose-turn indicator: "🎤 Maya → next Leo"
+  const nextName = st.next_turn ? ((st.participants || []).find(p => p.pid === st.next_turn) || {}).name : null;
+  const inTalk = life !== "not_started" && life !== "ended" && st.phase_mode !== "rating";
+  $("b-turnwrap").style.display = inTalk ? "" : "none";
+  $("b-turn").textContent = st.current_turn_name
+    ? st.current_turn_name + (nextName ? ` → next ${nextName}` : "")
+    : "open floor";
 
   if (st.started_at) {
     const d = new Date(st.started_at);
@@ -343,10 +351,11 @@ function renderState(st) {
         ${trend}
         <div class="bar"><i style="width:${share}%;background:${colorForPid(p.pid)}"></i></div>
       </div>
-      <span class="estats">${p.spoke_count || 0}<br><span class="status">this activity</span><br><button class="nudge" data-pid="${esc(p.pid)}">💬 Nudge</button></span>
+      <span class="estats">${p.spoke_count || 0}<br><span class="status">this activity</span><br><button class="nudge" data-pid="${esc(p.pid)}">💬 Nudge</button>${(!turn && st.phase_mode !== "rating") ? `<br><button class="nudge giveturn" data-pid="${esc(p.pid)}">🎤 Give turn</button>` : ""}</span>
     </div>`;
   }).join("");
-  eng.querySelectorAll(".nudge").forEach(b => b.onclick = () => send({ type: "private_nudge", pid: b.dataset.pid }));
+  eng.querySelectorAll(".nudge:not(.giveturn)").forEach(b => b.onclick = () => send({ type: "private_nudge", pid: b.dataset.pid }));
+  eng.querySelectorAll(".giveturn").forEach(b => b.onclick = () => override("set_turn", { pid: b.dataset.pid }));
 }
 setInterval(() => {
   if (!snapshot.started_at) return;
