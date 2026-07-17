@@ -420,6 +420,27 @@ def test_snapshot_carries_kid_state_fields(monkeypatch) -> None:
     assert share["turn_order"] == "round_robin"
     assert share["current_turn"] == "kid1"
     assert share["next_turn"] == "kid2"  # Leo's screen can say "you're next! 🌟"
+    assert share["quick_replies"] is False  # talking phases don't show feeling chips
+
+
+def test_checkout_activity_enables_quick_replies(monkeypatch) -> None:
+    _install_fakes(monkeypatch)
+
+    async def scenario() -> dict:
+        room = _make_room("qr2")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        await _add_kid(room, "Maya")
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        goto = json.dumps({"type": "override", "command": "goto_phase", "args": {"phase_id": "act_checkout"}})
+        await room.handle_client_message(protocol.THERAPIST, ther, goto)
+        _cancel(room)
+        return _last_snapshot(ther)
+
+    snap = asyncio.run(scenario())
+    assert snap["phase_id"] == "act_checkout"
+    assert snap["quick_replies"] is True  # tap-a-feeling is the point of this activity
 
 
 def test_kid_cannot_start(monkeypatch) -> None:

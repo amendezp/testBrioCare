@@ -308,7 +308,7 @@ function renderState(st) {
     : (lobby.length ? `Start session (${readyCount}/${lobby.length} ready)` : "Start session");
 
   // group-activity launch buttons — enabled once the session is running
-  const ACT_EMOJI = { act_feelings:"😀", act_compliments:"💛", act_brave:"🦁", act_thermometer:"🌡️", act_roleplay:"🎭" };
+  const ACT_EMOJI = { act_feeling_stories:"🗣", act_feelings:"😀", act_compliments:"💛", act_brave:"🦁", act_checkout:"👋", act_thermometer:"🌡️", act_roleplay:"🎭" };
   const acts = st.activities || [];
   if (acts.length) {
     $("activities").innerHTML = acts.map(a =>

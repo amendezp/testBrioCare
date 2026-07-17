@@ -688,10 +688,12 @@ class SessionRoom:
         phase_mode = None
         turn_order = None
         next_turn_pid = None
+        quick_replies = False
         if phase is not None:
             with contextlib.suppress(KeyError):
                 p = self.script.phase_by_id(phase.phase_id)
                 phase_title, phase_mode = p.title, p.mode
+                quick_replies = p.quick_replies
                 turn_order = p.turn_policy.order.value
                 # Who's on deck (round-robin only) — powers the kid's "You're next! 🌟"
                 if phase.current_turn is not None and p.turn_policy.order == TurnOrder.ROUND_ROBIN:
@@ -746,6 +748,7 @@ class SessionRoom:
             "current_turn_name": roster.get(current_turn) if current_turn else None,
             "turn_order": turn_order,
             "next_turn": next_turn_pid,
+            "quick_replies": quick_replies,
             "paused": state.paused,
             "agent_muted": state.agent_muted,
             "participants": participants,
