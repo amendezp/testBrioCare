@@ -57,6 +57,7 @@
   .ename { font-weight:800; } .erow .meta { font-size:12px; color:var(--mut); }
   .chip { font-size:11px; font-weight:800; padding:1px 7px; border-radius:20px; }
   .chip.active { background:#e3f6ee; color:#1e9e5a; } .chip.quiet { background:#fdeede; color:var(--amber); } .chip.none { background:#eef0f0; color:var(--mut); }
+  .chip.buddy { background:#e7f3ff; color:#2563a8; }
   .estats { text-align:right; font-size:12px; color:var(--mut); white-space:nowrap; }
   .bar { height:6px; border-radius:6px; background:#edf3f1; margin-top:5px; overflow:hidden; }
   .bar > i { display:block; height:100%; border-radius:6px; }
@@ -64,6 +65,20 @@
   .erow .trend.drop { color:var(--coral); font-weight:800; }
   button.nudge { background:#fff; color:var(--teal-deep); border:1.5px solid var(--line); border-radius:8px;
                  padding:3px 8px; font-size:11px; font-weight:700; margin-top:6px; }
+  button.nudge.buddy { color:#2563a8; border-color:#bcdcff; }
+  button.nudge.buddy.active { background:#e7f3ff; color:#1d4e86; border-color:#8fc2f5; }
+
+  /* Guardian safety alert — a real-time, hard-to-miss banner over everything else */
+  #safety-banner { display:none; position:fixed; top:0; left:0; right:0; z-index:50;
+    background:#c62a3b; color:#fff; padding:12px 18px; box-shadow:0 6px 20px rgba(198,42,59,.4);
+    font-size:14px; align-items:center; gap:14px; }
+  #safety-banner.show { display:flex; }
+  #safety-banner .sb-ic { font-size:22px; flex:0 0 auto; }
+  #safety-banner .sb-body { flex:1 1 auto; }
+  #safety-banner .sb-body b { font-weight:800; }
+  #safety-banner .sb-body .sub { opacity:.92; font-size:12.5px; }
+  #safety-banner button { background:#fff; color:#c62a3b; border:0; border-radius:8px;
+    padding:6px 14px; font-size:13px; font-weight:800; flex:0 0 auto; cursor:pointer; }
 
   /* controls */
   .controls { display:flex; flex-wrap:wrap; gap:7px; }
@@ -106,6 +121,15 @@
 </style>
 </head>
 <body>
+<div id="safety-banner" role="alert" aria-live="assertive">
+  <span class="sb-ic">🛟</span>
+  <div class="sb-body">
+    <b id="safety-headline">Guardian alert</b>
+    <div class="sub" id="safety-detail"></div>
+  </div>
+  <button id="safety-ack" type="button">Acknowledge</button>
+</div>
+
 <header>
   <div class="bird" id="bird"></div>
   <h1>BrioCare — therapist console</h1>
@@ -228,8 +252,20 @@ function handle(m) {
     case "session_review": renderReview(m); break;
     case "session_over": addCue({ icon:"🏁", text:"Session ended — review ready", level:"info" }); break;
     case "notice": addCue({ icon:"ℹ️", text:m.text, level:"info" }); break;
+    case "safety_alert": showSafetyAlert(m); break;
   }
 }
+
+/* Guardian: a child may have said something concerning. Surface it loudly and log a cue —
+   this is a supervision aid, never an automated response. The clinician decides what to do. */
+function showSafetyAlert(m) {
+  $("safety-headline").textContent = `Check in with ${m.name} — ${m.label}`;
+  $("safety-detail").textContent = `Heard in ${m.where}: “${m.matched}”. Guardian flags possible concern — use your clinical judgment.`;
+  $("safety-banner").classList.add("show");
+  try { $("safety-banner").scrollIntoView({ block: "start" }); } catch (e) {}
+  addCue({ icon:"🛟", text:`Guardian: ${m.name} — ${m.label} (“${m.matched}”, ${m.where})`, level:"action" });
+}
+$("safety-ack").onclick = () => $("safety-banner").classList.remove("show");
 
 /* ---------- video grid (call-object: every face, always) ---------- */
 const tiles = {};
@@ -348,16 +384,18 @@ function renderState(st) {
     return `<div class="erow ${turn ? "turn" : ""}">
       <span class="dot" style="background:${colorForPid(p.pid)}"></span>
       <div>
-        <span class="ename">${turn ? "▶ " : ""}${esc(p.name)}</span> <span class="chip ${status[0]}">${status[1]}</span>${p.connected === false ? ' <span class="chip quiet">📡 reconnecting…</span>' : ''}
+        <span class="ename">${turn ? "▶ " : ""}${esc(p.name)}</span> <span class="chip ${status[0]}">${status[1]}</span>${p.connected === false ? ' <span class="chip quiet">📡 reconnecting…</span>' : ''}${p.in_buddy ? ' <span class="chip buddy">🐾 buddy room</span>' : ''}
         <div class="meta">${p.utterances || 0} shares · ${p.words || 0} words · 🤝 ${p.spontaneous || 0} spontaneous · ${p.invites_received || 0} nudges · ${fmtAgo(p.last_spoke_ago)}</div>
         ${trend}
         <div class="bar"><i style="width:${share}%;background:${colorForPid(p.pid)}"></i></div>
       </div>
-      <span class="estats">${p.spoke_count || 0}<br><span class="status">this activity</span><br><button class="nudge" data-pid="${esc(p.pid)}">💬 Nudge</button>${(!turn && st.phase_mode !== "rating") ? `<br><button class="nudge giveturn" data-pid="${esc(p.pid)}">🎤 Give turn</button>` : ""}</span>
+      <span class="estats">${p.spoke_count || 0}<br><span class="status">this activity</span><br><button class="nudge nudgeonly" data-pid="${esc(p.pid)}">💬 Nudge</button>${(!turn && st.phase_mode !== "rating") ? `<br><button class="nudge giveturn" data-pid="${esc(p.pid)}">🎤 Give turn</button>` : ""}${st.phase_mode !== "rating" ? `<br><button class="nudge buddy${p.in_buddy ? " active" : ""}" data-pid="${esc(p.pid)}" data-in="${p.in_buddy ? 1 : 0}">${p.in_buddy ? "🐾 Bring back" : "🐾 Buddy time"}</button>` : ""}</span>
     </div>`;
   }).join("");
-  eng.querySelectorAll(".nudge:not(.giveturn)").forEach(b => b.onclick = () => send({ type: "private_nudge", pid: b.dataset.pid }));
+  eng.querySelectorAll(".nudgeonly").forEach(b => b.onclick = () => send({ type: "private_nudge", pid: b.dataset.pid }));
   eng.querySelectorAll(".giveturn").forEach(b => b.onclick = () => override("set_turn", { pid: b.dataset.pid }));
+  eng.querySelectorAll(".nudge.buddy").forEach(b => b.onclick = () =>
+    send({ type: b.dataset.in === "1" ? "buddy_leave" : "buddy_enter", pid: b.dataset.pid }));
 }
 setInterval(() => {
   if (!snapshot.started_at) return;
