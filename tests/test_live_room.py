@@ -393,6 +393,35 @@ def test_all_done_notice_and_prompt_mirror(monkeypatch) -> None:
     assert _notices(ther, "Everyone has shared")
 
 
+def test_snapshot_carries_kid_state_fields(monkeypatch) -> None:
+    """The kid status engine needs: therapist_present, the phase's turn style, and who's
+    on deck (next_turn) so the on-deck kid can see "you're next"."""
+    _install_fakes(monkeypatch)
+
+    def _rate(v: int) -> str:
+        return json.dumps({"type": "rating", "value": v})
+
+    async def scenario() -> tuple[dict, dict]:
+        room = _make_room("kf1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")
+        leo = await _add_kid(room, "Leo")
+        pre = _last_snapshot(ther)
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, _rate(4))
+        await room.handle_client_message(protocol.KID, leo, _rate(2))  # -> share_feelings, kid1's turn
+        _cancel(room)
+        return pre, _last_snapshot(ther)
+
+    pre, share = asyncio.run(scenario())
+    assert pre["therapist_present"] is True
+    assert share["turn_order"] == "round_robin"
+    assert share["current_turn"] == "kid1"
+    assert share["next_turn"] == "kid2"  # Leo's screen can say "you're next! 🌟"
+
+
 def test_kid_cannot_start(monkeypatch) -> None:
     _install_fakes(monkeypatch)
 

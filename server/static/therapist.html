@@ -36,8 +36,11 @@
   .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:14px; }
   h2 { margin:0 0 10px; font-size:12px; text-transform:uppercase; letter-spacing:.05em; color:var(--mut); }
 
-  /* video grid */
-  #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:8px; }
+  /* video grid — full-width strip above the columns so every kid's camera is big enough
+     to actually read faces; tiles grow with the window */
+  #video-card { grid-column:1 / -1; }
+  #grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:10px; }
+  #grid .tile { max-height:34vh; }
   .tile { position:relative; aspect-ratio:4/3; background:#0e2224; border-radius:12px; overflow:hidden; }
   .tile video { width:100%; height:100%; object-fit:cover; background:#0e2224; }
   .tile .nm { position:absolute; left:6px; bottom:6px; font-size:12px; font-weight:800; color:#fff;
@@ -120,11 +123,11 @@
 </div>
 
 <main>
+  <section class="card" id="video-card">
+    <h2>Everyone in the circle</h2>
+    <div id="grid"><div class="vid-off">Connecting video…</div></div>
+  </section>
   <div class="col">
-    <section class="card">
-      <h2>Everyone in the circle</h2>
-      <div id="grid"><div class="vid-off">Connecting video…</div></div>
-    </section>
     <section class="card">
       <h2>Engagement</h2>
       <div class="eng" id="eng"><div class="status">Kids will appear here as they join.</div></div>

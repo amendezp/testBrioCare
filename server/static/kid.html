@@ -47,15 +47,23 @@
   .topline { display:flex; align-items:center; gap:12px; }
   #banner { font-size:clamp(18px,2.6vh,23px); font-weight:800; min-height:26px; color:var(--teal-deep); }
   #banner.turn { color:var(--coral); }
+  #status-sub { font-size:clamp(13px,1.9vh,15px); color:var(--mut); min-height:18px; max-width:640px; }
+  /* unmissable "your turn": a soft coral glow around the whole screen */
+  body.your-turn::after { content:""; position:fixed; inset:0; pointer-events:none; z-index:6;
+    box-shadow: inset 0 0 0 6px var(--coral), inset 0 0 70px rgba(241,105,124,.28);
+    animation:turnglow 1.2s ease-in-out infinite alternate; }
+  @keyframes turnglow { from { opacity:.5; } to { opacity:1; } }
+  @media (prefers-reduced-motion: reduce) { body.your-turn::after { animation:none; opacity:.8; } }
   #bubble { position:relative; max-width:640px; width:100%; background:#fff; border:2px solid #eef6f4;
             border-radius:20px; padding:clamp(10px,1.6vh,16px) 20px; font-size:clamp(16px,2.3vh,20px); font-weight:600;
             color:var(--ink); box-shadow:0 8px 22px rgba(34,100,104,.08); min-height:24px; display:none; }
   #bubble.show { display:block; }
   #bubble::before { content:""; position:absolute; top:-12px; left:40px; width:22px; height:22px; background:#fff;
                     border-left:2px solid #eef6f4; border-top:2px solid #eef6f4; transform:rotate(45deg); }
-  /* Bound the video by viewport HEIGHT (width chosen so height = width*10/16 never exceeds ~36vh),
-     so on short screens it can't crowd out the prompt and mic. */
-  #video { width:min(100%, 640px, 58vh); aspect-ratio:16/10; background:#fff; border:3px solid #fff;
+  /* Use the real vertical budget: viewport minus banner/status/mic/gaps (~330px), floored
+     so landscape phones keep a usable call, capped at 960px on big screens. */
+  #video { width:min(100%, 960px, max(240px, calc((100dvh - 330px) * 1.6)));
+           aspect-ratio:16/10; background:#fff; border:3px solid #fff;
            border-radius:24px; overflow:hidden; box-shadow:0 12px 30px rgba(34,100,104,.14); flex:0 0 auto; }
   .vid-off { display:flex; height:100%; align-items:center; justify-content:center; color:var(--mut); font-size:15px; padding:18px; }
 
@@ -178,6 +186,7 @@
 
   <!-- SESSION -->
   <div class="topline"><div class="bird-sm" id="bird-sm"></div><div id="banner">Connecting…</div></div>
+  <div id="status-sub"></div>
   <div id="nosr">⚠️ This browser can't hear you — please use Chrome so the circle can include you.</div>
   <button id="ready-btn" class="big-btn" style="display:none;width:min(100%,420px)">I'm ready! 🙌</button>
   <div id="private-bubble"></div>
@@ -289,6 +298,7 @@ function showEndScreen(title, sub) {
   $("end-title").textContent = title;
   $("end-sub").textContent = sub;
   $("leave").classList.remove("show");
+  document.body.classList.remove("your-turn");
   $("endscreen").classList.add("show");
 }
 // Fully disconnect this child: stop the camera + mic and LEAVE the Daily call so
@@ -365,17 +375,54 @@ function applySnapshot(st) {
   $("mic").disabled = st.lifecycle === "ended";
   if (!wasStarted && started && live) startSR();  // mic was on through Start → begin transcribing now
   $("ready-btn").style.display = (!started && st.lifecycle === "not_started" && !amReady) ? "" : "none";
-  if (!started) { $("banner").className = ""; $("banner").textContent = amReady ? "You're ready! ✨" : "Getting ready… 🌱"; }
-  else if (phaseMode === "rating") { $("banner").className = ""; $("banner").textContent = "How are you feeling? 🌡️"; }
-  else if (myTurn) { $("banner").className = "turn"; $("banner").textContent = "It's your turn! ✨"; }
-  else { $("banner").className = ""; $("banner").textContent = st.current_turn_name ? `${st.current_turn_name}'s turn` : "We're listening together"; }
+
+  // --- status engine: every state tells the kid what's happening AND what to do ---
+  const me = (st.participants || []).find(p => p.pid === myPid);
+  const observing = started && (st.participants || []).length > 0 && !me;
+  let text = "", cls = "", sub = "";
+  if (st.paused) {
+    text = "Quick pause — be right back ⏸";
+  } else if (!started) {
+    if (!st.therapist_present) { text = "Waiting for your therapist to arrive… 🌱"; sub = amReady ? "You're ready! ✨" : ""; }
+    else if (!amReady) { text = "Your therapist is here! 💛"; sub = "Tap the big button when you're ready."; }
+    else { text = "You're ready! ✨"; sub = "Waiting for your therapist to start…"; }
+    const friends = (st.lobby || []).filter(k => k.pid !== myPid);
+    if (friends.length) {
+      const r = friends.filter(k => k.ready).length;
+      sub += (sub ? " " : "") + `${r} of ${friends.length} friend${friends.length > 1 ? "s are" : " is"} ready.`;
+    }
+  } else if (observing) {
+    text = "You're watching this circle 👀"; sub = "You'll be part of the next one!";
+  } else if (phaseMode === "rating") {
+    if (rated) { text = "Thanks for sharing! 💛"; sub = "Waiting for your friends to finish tapping…"; }
+    else { text = "How are you feeling? 🌡️"; sub = "Tap the face that fits."; }
+  } else if (st.lifecycle === "between_phases") {
+    text = "Waiting for your therapist to pick what's next… ✨";
+  } else if (myTurn) {
+    cls = "turn"; text = "It's your turn! ✨"; sub = "Tap the pink button to talk — or tap a feeling below 👇";
+  } else if (st.next_turn && st.next_turn === myPid && st.current_turn_name) {
+    text = `${st.current_turn_name}'s turn — you're next! 🌟`; sub = "Get your idea ready 💭";
+  } else if (st.current_turn_name) {
+    text = `${st.current_turn_name}'s turn — let's listen 👂`;
+  } else if (st.turn_order === "open" || st.turn_order === "popcorn") {
+    text = "Anyone can share — tap to talk! 💬";
+  } else {
+    text = "We're listening together";
+  }
+  if (me && me.skipped && started && phaseMode !== "rating" && !myTurn) {
+    sub = "That's okay — we can come back to you 💛";
+  }
+  $("banner").className = cls; $("banner").textContent = text;
+  $("status-sub").textContent = sub;
+  document.body.classList.toggle("your-turn", started && myTurn && phaseMode !== "rating" && !st.paused);
+
   // Stale-proof: every snapshot carries the current shared prompt, so this screen can
   // never keep showing a previous activity's instructions (e.g. after a network blip).
   if (started && phaseMode !== "rating" && st.current_prompt && !st.current_prompt.startsWith("🌡️")) {
     if ($("bubble").textContent !== st.current_prompt) { $("bubble").textContent = st.current_prompt; $("bubble").classList.add("show"); }
   }
   // The non-voice chips are available during a talking activity; the thermometer owns the rating phase.
-  $("quick-replies").classList.toggle("show", started && phaseMode !== "rating");
+  $("quick-replies").classList.toggle("show", started && phaseMode !== "rating" && !observing && !st.paused);
   if (phaseMode === "rating") $("bubble").classList.remove("show");  // thermometer prompt only — no duplicate
   else hideFeelings();
   paintMic();

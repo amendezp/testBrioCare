@@ -42,8 +42,9 @@ from briocare.runtime.events import (
 )
 from briocare.runtime.machine import SessionMachine
 from briocare.runtime.policies import all_participants_done
+from briocare.runtime.policies import next_turn as upcoming_turn
 from briocare.runtime.state import Lifecycle
-from briocare.scripts.schema import AdvanceWhen, ExerciseScript
+from briocare.scripts.schema import AdvanceWhen, ExerciseScript, TurnOrder
 from server import dump, privacy, protocol
 from server.daily import Daily
 from server.notes import NoteTaker
@@ -119,6 +120,7 @@ class SessionRoom:
             await self._send(ws, protocol.snapshot_msg(self._snapshot()))
             if self.machine is None:
                 await self._send(ws, protocol.notice_msg("Waiting for kids to join, then press Start."))
+            await self._send_kids(protocol.snapshot_msg(self._snapshot()))  # "your therapist is here!"
             return True
 
         # kid — capacity counts CONNECTED kids only, so a disconnected kid's kept seat
@@ -140,6 +142,7 @@ class SessionRoom:
     async def detach(self, role: str, ws: Any) -> None:
         if role == protocol.THERAPIST and self.therapist_ws is ws:
             self.therapist_ws = None
+            await self._send_kids(protocol.snapshot_msg(self._snapshot()))  # therapist stepped away
             return
         conn = self._conn_for_ws(ws)
         if conn is not None:
@@ -657,6 +660,8 @@ class SessionRoom:
             "activities": [{"id": p.id, "title": p.title} for p in self.script.phases if p.menu_only],
             # What the kids' shared bubble/thermometer shows right now (stale-proof resync).
             "current_prompt": self.current_prompt,
+            # Kids' screens use this to say "waiting for your therapist" truthfully.
+            "therapist_present": self.therapist_ws is not None,
         }
         if self.machine is None:
             return {
@@ -681,10 +686,23 @@ class SessionRoom:
         eng = self._engagement()
         phase_title = None
         phase_mode = None
+        turn_order = None
+        next_turn_pid = None
         if phase is not None:
             with contextlib.suppress(KeyError):
                 p = self.script.phase_by_id(phase.phase_id)
                 phase_title, phase_mode = p.title, p.mode
+                turn_order = p.turn_policy.order.value
+                # Who's on deck (round-robin only) — powers the kid's "You're next! 🌟"
+                if phase.current_turn is not None and p.turn_policy.order == TurnOrder.ROUND_ROBIN:
+                    roster_list = list(roster)
+                    start = (
+                        roster_list.index(phase.current_turn) + 1 if phase.current_turn in roster_list else 0
+                    )
+                    next_turn_pid = upcoming_turn(
+                        p.turn_policy.order, roster_list, phase,
+                        start=start, one_turn=p.turn_policy.one_turn_per_participant,
+                    )
         # First / last *linear* feelings-rating phases drive the check-in vs check-out trend
         # (the on-demand thermometer activity must not be mistaken for the closing check-out).
         rating_phase_ids = [p.id for p in self.script.phases if p.mode == "rating" and not p.menu_only]
@@ -726,6 +744,8 @@ class SessionRoom:
             ),
             "current_turn": current_turn,
             "current_turn_name": roster.get(current_turn) if current_turn else None,
+            "turn_order": turn_order,
+            "next_turn": next_turn_pid,
             "paused": state.paused,
             "agent_muted": state.agent_muted,
             "participants": participants,
