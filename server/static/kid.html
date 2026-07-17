@@ -356,10 +356,14 @@ $("ready-btn").onclick = () => {
 };
 
 function applySnapshot(st) {
+  const wasStarted = started;
   started = st.lifecycle !== "not_started" && st.lifecycle !== "ended";
   myTurn = !!(st.current_turn && st.current_turn === myPid);
   phaseMode = st.phase_mode || null;
-  $("mic").disabled = !started;
+  // The mic works in the LOBBY too (say hi, check you can be heard) — it's only dead
+  // once the session has ended. Transcription still starts with the session (see setLive).
+  $("mic").disabled = st.lifecycle === "ended";
+  if (!wasStarted && started && live) startSR();  // mic was on through Start → begin transcribing now
   $("ready-btn").style.display = (!started && st.lifecycle === "not_started" && !amReady) ? "" : "none";
   if (!started) { $("banner").className = ""; $("banner").textContent = amReady ? "You're ready! ✨" : "Getting ready… 🌱"; }
   else if (phaseMode === "rating") { $("banner").className = ""; $("banner").textContent = "How are you feeling? 🌡️"; }
@@ -389,14 +393,16 @@ function mountVideo(url) {
   callFrame.join({ url, userName: myName }).catch(() => { el.innerHTML = '<div class="vid-off">Could not join the video.</div>'; });
 }
 
-// --- the one mic control: drives the call mic + transcription together ---
+// --- the one mic control: drives the call mic + transcription together.
+// In the lobby the mic is audio-only (say hi, sound-check); transcription only runs
+// once the session has started, so warm-up chatter never enters the session record.
 function setLive(on) {
   live = on;
   if (callFrame) { try { callFrame.setLocalAudio(on); } catch (e) {} }
-  if (on) startSR(); else stopSR();
+  if (on && started) startSR(); else stopSR();
   paintMic();
 }
-function syncLive(on) { if (on !== live) { live = on; if (on) startSR(); else stopSR(); paintMic(); } }
+function syncLive(on) { if (on !== live) { live = on; if (on && started) startSR(); else stopSR(); paintMic(); } }
 
 function paintMic() {
   const mic = $("mic"), label = $("mic-label"), sub = $("mic-sub");
@@ -406,7 +412,9 @@ function paintMic() {
   mic.classList.toggle("invite", !live && myTurn && started);
   label.className = live ? "live" : "muted";
   label.textContent = live ? "You're on — tap to mute" : (myTurn ? "Your turn — tap to talk!" : "Tap to talk");
-  sub.textContent = live ? "Everyone can hear you 🎤" : "When this is green, everyone can hear you.";
+  sub.textContent = live
+    ? (started ? "Everyone can hear you 🎤" : "Everyone can hear you — the circle hasn't started yet 🎤")
+    : (started ? "When this is green, everyone can hear you." : "Say hi anytime! When this is green, everyone can hear you.");
 }
 $("mic").onclick = () => { if (!$("mic").disabled) setLive(!live); };
 
