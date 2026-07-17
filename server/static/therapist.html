@@ -19,6 +19,14 @@
          color:var(--ink); background:var(--bg); }
   header { display:flex; align-items:center; gap:10px; padding:12px 18px; background:#fff; border-bottom:1px solid var(--line); }
   header .bird { width:30px; height:28px; } header h1 { margin:0; font-size:16px; color:var(--teal-deep); }
+  #home-link { display:flex; align-items:center; gap:10px; cursor:pointer; border-radius:8px; padding:2px 4px; }
+  #home-link:hover h1 { text-decoration:underline; } #home-link:focus-visible { outline:2px solid var(--teal-light); }
+  .card-h { display:flex; align-items:center; gap:8px; }
+  .card-h h2 { margin:0; }
+  .linkbtn { margin-left:auto; background:none; border:0; color:var(--mut); font-size:12px; font-weight:700;
+             cursor:pointer; padding:2px 6px; border-radius:6px; }
+  .linkbtn:hover { color:var(--teal-deep); background:#eef6f4; }
+  .linkbtn:disabled { color:#c3d3d1; cursor:default; background:none; }
   .pill { color:var(--mut); font-size:12px; margin-left:auto; }
 
   /* session bar */
@@ -96,6 +104,10 @@
   .cue.action { border-left-color:var(--coral); background:#fff5f6; } .cue.time { border-left-color:var(--amber); background:#fdf6ec; }
   .cue .ic { font-size:16px; } .cue .tx { font-size:14px; font-weight:600; }
   .cue .ago { margin-left:auto; font-size:11px; color:var(--mut); }
+  .cue .cnudge { margin-left:auto; flex:0 0 auto; align-self:center; background:#fff; color:var(--teal-deep);
+    border:1.5px solid var(--line); border-radius:8px; padding:3px 9px; font-size:11px; font-weight:700; cursor:pointer; white-space:nowrap; }
+  .cue .cnudge:hover { border-color:var(--teal-light); background:#eef6f4; }
+  .cue .cnudge.sent { color:var(--mut); border-color:var(--line); background:#f4f7f6; cursor:default; }
   .scroll { max-height:300px; overflow:auto; }
   .t-line { margin:3px 0; font-size:13.5px; } .t-line .who { font-weight:800; } .t-line .txt { color:var(--ink); }
   .notes { max-height:360px; overflow:auto; } .notes h3 { font-size:14px; margin:12px 0 4px; color:var(--teal-deep); }
@@ -131,8 +143,10 @@
 </div>
 
 <header>
-  <div class="bird" id="bird"></div>
-  <h1>BrioCare — therapist console</h1>
+  <div id="home-link" role="link" tabindex="0" title="Back to the BrioCare home page">
+    <div class="bird" id="bird"></div>
+    <h1>BrioCare — therapist console</h1>
+  </div>
   <span class="pill" id="conn">connecting…</span>
 </header>
 
@@ -188,7 +202,7 @@
       <div id="kidscreen" class="status">Nothing shared yet — the current prompt will mirror here.</div>
     </section>
     <section class="card">
-      <h2>Co-pilot cues</h2>
+      <div class="card-h"><h2>Co-pilot cues</h2><button id="cues-clear" class="linkbtn" type="button">Clear</button></div>
       <div class="cues" id="cues"><div class="status">Guidance appears here — whose turn, who's quiet, when to wrap.</div></div>
     </section>
     <section class="card">
@@ -410,8 +424,34 @@ function addCue(c) {
   const el = document.createElement("div"); el.className = "cue " + (c.level || "info");
   el.innerHTML = `<span class="ic"></span><span class="tx"></span>`;
   el.querySelector(".ic").textContent = c.icon || "•"; el.querySelector(".tx").textContent = c.text;
+  // A cue about one child (whose turn, quiet, opened up) becomes a one-tap private nudge.
+  if (c.pid) {
+    const b = document.createElement("button");
+    b.className = "cnudge"; b.type = "button"; b.textContent = "💬 Nudge";
+    b.onclick = () => { send({ type: "private_nudge", pid: c.pid }); b.textContent = "Sent ✓"; b.classList.add("sent"); b.disabled = true; };
+    el.append(b);
+  }
   box.prepend(el); while (box.children.length > 40) box.lastChild.remove();
 }
+function clearCues() {
+  $("cues").innerHTML = '<div class="status">Cleared. New guidance will appear here as the session goes on.</div>';
+}
+$("cues-clear").onclick = clearCues;
+
+/* Home navigation — never yank the therapist out of a live session or an open review
+   by accident, so guard those; otherwise go straight to the landing page. */
+function goHome() {
+  const life = snapshot.lifecycle;
+  const inSession = life && life !== "not_started" && life !== "ended";
+  const reviewing = $("review").classList.contains("show");
+  let ask = null;
+  if (inSession) ask = "Leave this live session and go to the home page? The circle keeps running for the kids.";
+  else if (reviewing) ask = "Leave the session review and go to the home page?";
+  if (ask && !confirm(ask)) return;
+  location.href = "/";
+}
+$("home-link").onclick = goHome;
+$("home-link").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goHome(); } });
 function addTranscript(m) {
   const box = $("transcript"); if (box.querySelector(".status")) box.innerHTML = "";
   const div = document.createElement("div"); div.className = "t-line";
