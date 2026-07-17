@@ -99,6 +99,8 @@ class SessionRoom:
         self._notes_task: asyncio.Task[None] | None = None
         self.last_notes = ""
         self.current_prompt = ""  # what the kids' shared bubble/thermometer shows right now
+        self.turn_prompt = ""  # a prompt addressed to ONE kid (only they see it)
+        self.turn_prompt_for: str | None = None
         self._alldone_notified: tuple[str, float] | None = None  # (phase_id, entered_at)
 
         self.room_url: str | None = None
@@ -427,18 +429,31 @@ class SessionRoom:
 
         snapshot = self._snapshot()
         await self._broadcast(protocol.snapshot_msg(snapshot))
-        prompt_before = self.current_prompt
+        prompt_before = (self.current_prompt, self.turn_prompt, self.turn_prompt_for)
 
         # Shared, kid-appropriate prompts (activity openings/transitions), optionally phrased.
         notes_phase = self._current_phase_notes()
         history = list(self.machine.state.history)
         advanced = False
         for action in actions:
+            if isinstance(action, AdvancePhase):
+                self.turn_prompt, self.turn_prompt_for = "", None  # personal prompts die with their phase
             if isinstance(action, SayPrompt) and action.source in _SHAREABLE:
                 text = await self.phraser.phrase(action, facilitator_notes=notes_phase, recent_history=history)
                 if text:
-                    self.current_prompt = text  # carried in every snapshot so kid screens can't go stale
-                    await self._broadcast(protocol.assistant_msg(text))
+                    target = self._prompt_target(action) or self._named_target(text)
+                    if target is not None and target in roster:
+                        # Addressed to ONE kid: only they see it; the group keeps the plain
+                        # instruction so nobody reads a prompt meant for someone else.
+                        self.turn_prompt, self.turn_prompt_for = text, target
+                        self.current_prompt = action.text
+                        await self._send_kid(target, protocol.assistant_msg(text))
+                        await self._send_therapist(
+                            protocol.assistant_msg(f"→ only {roster.get(target, target)} sees: {text}")
+                        )
+                    else:
+                        self.current_prompt = text  # carried in every snapshot so kid screens can't go stale
+                        await self._broadcast(protocol.assistant_msg(text))
             if isinstance(action, RequestRating):
                 self.current_prompt = f"🌡️ {action.prompt_text}"
                 await self._broadcast(protocol.request_rating_msg(scale=action.scale, prompt=action.prompt_text))
@@ -447,12 +462,36 @@ class SessionRoom:
             if isinstance(action, EndSession):
                 await self._broadcast(protocol.session_over_msg())
                 self._trigger_final()
-        if self.current_prompt != prompt_before:
-            # the shared prompt changed this step — resync everyone's snapshot so no
-            # kid screen can be left showing the previous activity's instructions
+        if (self.current_prompt, self.turn_prompt, self.turn_prompt_for) != prompt_before:
+            # the shared/personal prompt changed this step — resync everyone's snapshot so
+            # no kid screen can be left showing the previous activity's instructions
             await self._broadcast(protocol.snapshot_msg(self._snapshot()))
         if advanced:
             self._trigger_notes()
+
+    def _prompt_target(self, action: SayPrompt) -> str | None:
+        """The single kid a shareable prompt addresses, per the script: an opening marked
+        ``addressed_to: current_turn`` speaks only to whoever holds the turn."""
+        if self.machine is None or action.phase_id is None:
+            return None
+        st = self.machine.state.phase
+        if st is None or action.source != PromptSource.PHASE_OPENING:
+            return None
+        with contextlib.suppress(KeyError):
+            if self.script.phase_by_id(action.phase_id).opening_prompt.addressed_to == "current_turn":
+                return st.current_turn
+        return None
+
+    def _named_target(self, text: str) -> str | None:
+        """Fallback: the phraser sometimes opens with a child's name ("Andy, …") even for
+        a group prompt — treat that as addressed to that child."""
+        if self.machine is None:
+            return None
+        for pid, name in self.machine.state.roster.items():
+            nm = name.strip()
+            if len(nm) >= 2 and (text.startswith(nm + ",") or text.startswith(nm + "!")):
+                return pid
+        return None
 
     def _friendly_cues(self, actions: list[Any], roster: dict[str, str]) -> list[dict]:
         """Turn a step's engine actions into plain, actionable therapist cues.
@@ -662,6 +701,9 @@ class SessionRoom:
             "current_prompt": self.current_prompt,
             # Kids' screens use this to say "waiting for your therapist" truthfully.
             "therapist_present": self.therapist_ws is not None,
+            # A prompt addressed to one kid: only their screen shows it (stale-proof).
+            "turn_prompt": self.turn_prompt,
+            "turn_prompt_for": self.turn_prompt_for,
         }
         if self.machine is None:
             return {

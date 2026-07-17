@@ -423,6 +423,40 @@ def test_snapshot_carries_kid_state_fields(monkeypatch) -> None:
     assert share["quick_replies"] is False  # talking phases don't show feeling chips
 
 
+def test_turn_addressed_prompt_goes_only_to_that_kid(monkeypatch) -> None:
+    """share_feelings' opening is addressed_to: current_turn — only the turn-holder's
+    screen gets it; the other kids keep the plain group instruction."""
+    _install_fakes(monkeypatch)
+
+    def _rate(v: int) -> str:
+        return json.dumps({"type": "rating", "value": v})
+
+    async def scenario() -> tuple[_FakeWS, _FakeWS, _FakeWS, dict]:
+        room = _make_room("tp1")
+        ther = _FakeWS()
+        await room.attach(protocol.THERAPIST, ther)
+        maya = await _add_kid(room, "Maya")  # kid1 — first turn
+        leo = await _add_kid(room, "Leo")  # kid2
+        await room.handle_client_message(protocol.THERAPIST, ther, _START)
+        _cancel(room)
+        await room.handle_client_message(protocol.KID, maya, _rate(4))
+        await room.handle_client_message(protocol.KID, leo, _rate(2))  # -> share_feelings opens
+        _cancel(room)
+        return maya, leo, ther, _last_snapshot(ther)
+
+    maya, leo, ther, snap = asyncio.run(scenario())
+    opening = "go around the circle"
+    maya_bubbles = [m["text"] for m in maya.sent if m["type"] == "assistant"]
+    leo_bubbles = [m["text"] for m in leo.sent if m["type"] == "assistant"]
+    assert any(opening in t.lower() for t in maya_bubbles)  # the turn-holder sees it
+    assert not any(opening in t.lower() for t in leo_bubbles)  # the other kid does NOT
+    assert snap["turn_prompt_for"] == "kid1"
+    assert opening in snap["current_prompt"].lower()  # group keeps the plain instruction
+    assert any(
+        m["type"] == "assistant" and m["text"].startswith("→ only Maya sees:") for m in ther.sent
+    )  # therapist mirror is told it's personal
+
+
 def test_therapist_can_give_the_turn_to_a_specific_kid(monkeypatch) -> None:
     """The console's 🎤 Give turn button sends set_turn; the chosen kid becomes the
     current turn and gets a clinician-directed invite."""
